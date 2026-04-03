@@ -160,14 +160,14 @@ info "Generating secrets..."
 mkdir -p "${PROJECT_DIR}/secrets"
 
 if [[ ! -f "${PROJECT_DIR}/secrets/pg_password.txt" ]]; then
-    openssl rand -base64 32 > "${PROJECT_DIR}/secrets/pg_password.txt"
+    openssl rand -hex 24 > "${PROJECT_DIR}/secrets/pg_password.txt"
     ok "Created: secrets/pg_password.txt"
 else
     warn "secrets/pg_password.txt already exists, skipping"
 fi
 
 if [[ ! -f "${PROJECT_DIR}/secrets/jwt_secret.txt" ]]; then
-    openssl rand -base64 64 > "${PROJECT_DIR}/secrets/jwt_secret.txt"
+    openssl rand -hex 48 > "${PROJECT_DIR}/secrets/jwt_secret.txt"
     ok "Created: secrets/jwt_secret.txt"
 else
     warn "secrets/jwt_secret.txt already exists, skipping"
@@ -307,8 +307,7 @@ echo -e "${GREEN}║${NC}  DNS:        ${SERVER_IP}:53 (UDP/TCP)          ${GREE
 echo -e "${GREEN}║${NC}  DoT:        ${SERVER_IP}:853                   ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}  DoH:        ${SERVER_IP}:8853                  ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}                                              ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  Default login: admin / KnotDNS@2026!        ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}  ${RED}CHANGE THE PASSWORD IMMEDIATELY!${NC}            ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}  First visit: create your admin account      ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}                                              ${GREEN}║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
