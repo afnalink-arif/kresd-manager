@@ -1,0 +1,11 @@
+secrets/
+.env
+node_modules/
+dist/
+*.log
+config/kresd/tls/*.key
+config/kresd/tls/*.crt
+
+# Generated configs (from templates by install.sh)
+config/Caddyfile
+config/kresd/config.yaml

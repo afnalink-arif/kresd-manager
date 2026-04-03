@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 15s
+  scrape_timeout: 8s
+
+scrape_configs:
+  # Knot Resolver metrics (via backend Go exporter: kresd JSON → Prometheus text)
+  - job_name: kresd
+    static_configs:
+      - targets: ['backend:8080']
+        labels:
+          instance: kresd-primary
+    metrics_path: /api/internal/metrics
+    scrape_interval: 5s
+
+  # Host system metrics (node-exporter runs on host network)
+  - job_name: node
+    static_configs:
+      - targets: ['172.17.0.1:9100']
+        labels:
+          instance: dns-server
+    metrics_path: /metrics

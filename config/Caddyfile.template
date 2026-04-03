@@ -1,0 +1,33 @@
+__DOMAIN__ {
+    # Backend API + WebSocket
+    handle /api/* {
+        reverse_proxy backend:8080 {
+            flush_interval -1
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
+            lb_try_duration 10s
+            lb_try_interval 250ms
+        }
+    }
+
+    # Dashboard UI
+    handle {
+        reverse_proxy frontend:3000 {
+            lb_try_duration 5s
+            lb_try_interval 250ms
+        }
+    }
+
+    tls {
+        protocols tls1.2 tls1.3
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    }
+}
