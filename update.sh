@@ -145,32 +145,18 @@ sleep 2
 info "  Restarting monitoring..."
 docker compose up -d prometheus node-exporter
 
-# Restart app layer
-info "  Restarting backend & frontend..."
-docker compose up -d backend frontend
+# Restart frontend first (static files, no state)
+info "  Restarting frontend..."
+docker compose up -d frontend
 
-# Restart reverse proxy last
+# Restart reverse proxy
 info "  Restarting caddy..."
 docker compose up -d caddy
 
-ok "All services restarted"
-
-# ---- Step 5: Health check ----
+# ---- Step 5: Health check (before backend restart) ----
 echo ""
 info "Running health checks..."
-
-# Wait for services
-sleep 5
-
-# Check all containers running
-RUNNING=$(docker compose ps --status running --format json 2>/dev/null | wc -l || echo "0")
-TOTAL=$(docker compose ps --format json 2>/dev/null | wc -l || echo "0")
-if [[ "$RUNNING" -ge 10 ]]; then
-    ok "All ${RUNNING} services running"
-else
-    warn "Only ${RUNNING}/${TOTAL} services running"
-    docker compose ps
-fi
+sleep 3
 
 # Check DNS
 if command -v dig &>/dev/null; then
@@ -182,7 +168,7 @@ if command -v dig &>/dev/null; then
     fi
 fi
 
-# Check dashboard
+# Check dashboard frontend
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:3000" 2>/dev/null || echo "000")
 if [[ "$HTTP_CODE" == "200" ]]; then
     ok "Dashboard accessible (HTTP ${HTTP_CODE})"
@@ -194,3 +180,9 @@ echo ""
 echo -e "${GREEN}Update complete!${NC}"
 echo "  Dashboard: https://${DOMAIN}"
 echo ""
+
+# Restart backend LAST — when running inside the backend container,
+# this kills the update process, so everything else must be done first.
+# Use nohup so the docker command survives even if this shell is killed.
+info "Restarting backend container..."
+nohup docker compose up -d backend >/dev/null 2>&1 &
