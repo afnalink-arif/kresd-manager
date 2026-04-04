@@ -16,7 +16,6 @@ NC='\033[0m'
 
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$PROJECT_DIR"
 
 if [[ "$NONINTERACTIVE" == "1" ]]; then
   info()  { echo "[INFO] $1"; }
@@ -30,11 +29,35 @@ else
   error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 fi
 
+# When running inside a container, docker compose can't resolve relative bind
+# mount paths (daemon sees container paths, not host paths).
+# Re-execute this script in a new container with the correct host mount.
+if [[ -f /.dockerenv ]] && command -v docker &>/dev/null; then
+    HOST_PATH=$(docker inspect "$(hostname)" --format '{{range .Mounts}}{{if eq .Destination "/project"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || echo "")
+    if [[ -n "$HOST_PATH" ]]; then
+        BACKEND_IMAGE=$(docker inspect "$(hostname)" --format '{{.Config.Image}}' 2>/dev/null || echo "")
+        if [[ -z "$BACKEND_IMAGE" ]]; then
+            error "Cannot detect backend image"
+        fi
+        info "Delegating to host path: ${HOST_PATH}"
+        exec docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOST_PATH}:${HOST_PATH}:rw" \
+            -w "${HOST_PATH}" \
+            -e NONINTERACTIVE=1 \
+            -e TERM=dumb \
+            --network host \
+            --entrypoint bash "$BACKEND_IMAGE" "${HOST_PATH}/update.sh"
+    fi
+fi
+
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Knot DNS Monitor - Updater             ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
 echo ""
+
+cd "$PROJECT_DIR"
 
 # ---- Pre-flight checks ----
 if [[ ! -f .env ]]; then
@@ -120,7 +143,7 @@ fi
 # ---- Step 3: Rebuild custom images ----
 info "Rebuilding custom images..."
 export APP_VERSION=$(cat VERSION 2>/dev/null || echo "dev")
-docker compose build --parallel 2>&1 | tail -5
+$COMPOSE_CMD build --parallel 2>&1 | tail -5
 ok "Images rebuilt (version: ${APP_VERSION})"
 
 # ---- Step 4: Rolling restart ----
@@ -128,30 +151,30 @@ info "Restarting services..."
 
 # Restart infra first (they have health checks)
 info "  Restarting infrastructure services..."
-docker compose up -d clickhouse redis postgres
+$COMPOSE_CMD up -d clickhouse redis postgres
 sleep 3
 
 # Restart dnstap-ingester before kresd (socket dependency)
 info "  Restarting dnstap-ingester..."
-docker compose up -d dnstap-ingester
+$COMPOSE_CMD up -d dnstap-ingester
 sleep 2
 
 # Restart kresd
 info "  Restarting kresd..."
-docker compose up -d kresd
+$COMPOSE_CMD up -d kresd
 sleep 2
 
 # Restart monitoring
 info "  Restarting monitoring..."
-docker compose up -d prometheus node-exporter
+$COMPOSE_CMD up -d prometheus node-exporter
 
 # Restart frontend first (static files, no state)
 info "  Restarting frontend..."
-docker compose up -d frontend
+$COMPOSE_CMD up -d frontend
 
 # Restart reverse proxy
 info "  Restarting caddy..."
-docker compose up -d caddy
+$COMPOSE_CMD up -d caddy
 
 # ---- Step 5: Health check (before backend restart) ----
 echo ""
@@ -185,4 +208,4 @@ echo ""
 # this kills the update process, so everything else must be done first.
 # Use nohup so the docker command survives even if this shell is killed.
 info "Restarting backend container..."
-nohup docker compose up -d backend >/dev/null 2>&1 &
+nohup $COMPOSE_CMD up -d backend >/dev/null 2>&1 &
