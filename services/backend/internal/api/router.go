@@ -289,6 +289,10 @@ func initPostgres(pool *pgxpool.Pool) error {
 			sync_duration_ms INT NOT NULL DEFAULT 0,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		// Seed rpz_config row + migrate old master_servers
+		`INSERT INTO rpz_config (id, master_servers) VALUES (1, '139.255.196.202,182.23.79.202,103.154.123.130') ON CONFLICT DO NOTHING`,
+		`UPDATE rpz_config SET master_servers = '139.255.196.202,182.23.79.202,103.154.123.130'
+		 WHERE id = 1 AND master_servers = '103.154.123.130,139.255.196.202'`,
 		`CREATE TABLE IF NOT EXISTS blockpage_config (
 			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
 			title VARCHAR(255) NOT NULL DEFAULT 'Akses Diblokir',

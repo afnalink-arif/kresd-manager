@@ -153,23 +153,34 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 		}
 		axfrCancel()
 
-		// Verify we got real data (not just errors)
-		if info, err := os.Stat(tmpFile); err == nil && info.Size() > 200 && axfrErr == nil {
-			// Quick sanity check: file should contain zone records
-			if head, err := readFileHead(tmpFile, 512); err == nil && strings.Contains(head, cfg.ZoneName) {
-				usedMaster = master
-				break
+		// Verify we got real zone data (not just SOA/NS from unregistered IP)
+		if info, err := os.Stat(tmpFile); err == nil && axfrErr == nil {
+			fileSize := info.Size()
+			if head, err := readFileHead(tmpFile, 1024); err == nil && strings.Contains(head, cfg.ZoneName) {
+				// Check if we got meaningful data — just SOA+NS is typically < 1KB
+				if fileSize > 10*1024 { // > 10KB = likely real data
+					usedMaster = master
+					sendEvent(fmt.Sprintf("[OK] Got %.1f MB from %s", float64(fileSize)/1024/1024, master))
+					break
+				}
+				// Small response = probably unregistered IP, only got SOA/NS
+				sendEvent(fmt.Sprintf("[WARN] %s returned only %d bytes (possibly IP not registered at Komdigi)", master, fileSize))
+			} else if fileSize == 0 {
+				sendEvent(fmt.Sprintf("[WARN] %s returned empty response", master))
+			} else {
+				sendEvent(fmt.Sprintf("[WARN] %s returned invalid zone data", master))
 			}
+		} else {
+			sendEvent(fmt.Sprintf("[WARN] Failed from %s: %v", master, axfrErr))
 		}
-		sendEvent(fmt.Sprintf("[WARN] Failed from %s: %v", master, axfrErr))
 	}
 
 	if usedMaster == "" {
-		errMsg := "all master servers failed"
+		errMsg := "Semua master server gagal memberikan zone data. Kemungkinan IP server ini belum terdaftar di Komdigi. Daftar di: https://s.komdigi.go.id/FormKoneksiRPZ"
 		if axfrErr != nil {
-			errMsg = axfrErr.Error()
+			errMsg = fmt.Sprintf("Zone transfer gagal: %v — Pastikan IP server sudah terdaftar di s.komdigi.go.id/FormKoneksiRPZ", axfrErr)
 		}
-		sendEvent(fmt.Sprintf("[ERROR] Zone transfer failed: %s", errMsg))
+		sendEvent(fmt.Sprintf("[ERROR] %s", errMsg))
 		os.Remove(tmpFile)
 		s.updateRPZSyncStatus("error", errMsg, 0, 0, 0)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", errMsg)
