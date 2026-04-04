@@ -1,7 +1,7 @@
 import { createSignal, onMount, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import { authHeaders, getToken, logout } from "~/lib/auth";
-import { updateAPI, clusterAPI, type UpdateCheckResult, type ClusterConfig, type ClusterNode } from "~/lib/api";
+import { updateAPI, clusterAPI, servicesAPI, type UpdateCheckResult, type ClusterConfig, type ClusterNode, type ServiceInfo } from "~/lib/api";
 
 type Tab = "account" | "users" | "cluster" | "system";
 
@@ -34,6 +34,12 @@ export default function SettingsPage() {
   const [updateError, setUpdateError] = createSignal("");
   const [restarting, setRestarting] = createSignal(false);
 
+  // Services
+  const [services, setServices] = createSignal<ServiceInfo[]>([]);
+  const [restartingService, setRestartingService] = createSignal("");
+  const [restartAllRunning, setRestartAllRunning] = createSignal(false);
+  const [restartOutput, setRestartOutput] = createSignal<string[]>([]);
+
   // Cluster
   const [clusterConfig, setClusterConfig] = createSignal<ClusterConfig | null>(null);
   const [clusterNodes, setClusterNodes] = createSignal<ClusterNode[]>([]);
@@ -55,7 +61,66 @@ export default function SettingsPage() {
       }
     } catch {}
     loadClusterConfig();
+    loadServices();
   });
+
+  const loadServices = async () => {
+    try { setServices(await servicesAPI.list()); } catch {}
+  };
+
+  const handleRestartService = async (name: string) => {
+    setRestartingService(name);
+    try {
+      await servicesAPI.restart(name);
+      if (name === "backend") {
+        // Backend kills itself, poll until back
+        setTimeout(async () => {
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const res = await fetch("/api/health", { signal: AbortSignal.timeout(2000) });
+              if (res.ok) { setRestartingService(""); loadServices(); return; }
+            } catch {}
+          }
+          setRestartingService("");
+        }, 1000);
+      } else {
+        setTimeout(() => { setRestartingService(""); loadServices(); }, 2000);
+      }
+    } catch { setRestartingService(""); }
+  };
+
+  const handleRestartAll = async () => {
+    setRestartAllRunning(true);
+    setRestartOutput([]);
+    try {
+      const res = await fetch("/api/admin/services/restart-all", { method: "POST", headers: authHeaders() });
+      if (!res.ok) { setRestartAllRunning(false); return; }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) setRestartOutput((prev) => [...prev, line.slice(6)]);
+          else if (line.startsWith("event: done")) { setRestartAllRunning(false); }
+        }
+      }
+    } catch {}
+    // Poll for backend restart
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const res = await fetch("/api/health", { signal: AbortSignal.timeout(2000) });
+        if (res.ok) { setRestartAllRunning(false); loadServices(); return; }
+      } catch {}
+    }
+    setRestartAllRunning(false);
+  };
 
   // --- Cluster handlers ---
   const loadClusterConfig = async () => {
@@ -594,6 +659,77 @@ export default function SettingsPage() {
                   </Show>
                 </div>
               </Show>
+
+              {/* Services Management */}
+              <div class="pt-4 border-t border-slate-700/50">
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="text-sm font-medium text-white">Services</h3>
+                  <div class="flex gap-2">
+                    <button onClick={loadServices}
+                      class="px-2.5 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
+                      Refresh
+                    </button>
+                    <button onClick={handleRestartAll} disabled={restartAllRunning()}
+                      class="px-2.5 py-1 text-[10px] bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 rounded transition-colors disabled:opacity-50">
+                      {restartAllRunning() ? "Restarting..." : "Restart All"}
+                    </button>
+                  </div>
+                </div>
+
+                <Show when={restartOutput().length > 0}>
+                  <div class="mb-3 bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-40 overflow-y-auto border border-slate-700/50"
+                    ref={(el) => {
+                      const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
+                      observer.observe(el, { childList: true, subtree: true });
+                    }}>
+                    <For each={restartOutput()}>
+                      {(line) => (
+                        <div class={
+                          line.includes("[OK]") ? "text-emerald-400" :
+                          line.includes("[ERROR]") ? "text-red-400" :
+                          "text-slate-400"
+                        }>{line}</div>
+                      )}
+                    </For>
+                    <Show when={restartAllRunning()}>
+                      <div class="text-amber-400 animate-pulse mt-1">Restarting...</div>
+                    </Show>
+                  </div>
+                </Show>
+
+                <div class="grid grid-cols-2 gap-1.5">
+                  <For each={services()}>
+                    {(svc) => (
+                      <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 group">
+                        <div class="flex items-center gap-2">
+                          <span class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            svc.status === "running" ? "bg-emerald-500" :
+                            svc.status === "exited" ? "bg-red-500" :
+                            svc.status === "restarting" ? "bg-amber-500" : "bg-slate-500"
+                          }`} />
+                          <span class="text-xs text-white">{svc.name}</span>
+                          <Show when={svc.health}>
+                            <span class={`text-[10px] ${svc.health === "healthy" ? "text-emerald-500" : "text-amber-500"}`}>
+                              ({svc.health})
+                            </span>
+                          </Show>
+                        </div>
+                        <button
+                          onClick={() => handleRestartService(svc.name)}
+                          disabled={restartingService() !== "" || restartAllRunning()}
+                          class="px-2 py-0.5 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-400 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                        >
+                          {restartingService() === svc.name ? "..." : "Restart"}
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+
+                <Show when={services().length === 0}>
+                  <p class="text-xs text-slate-500 text-center py-3">Loading services...</p>
+                </Show>
+              </div>
             </div>
           </Show>
 

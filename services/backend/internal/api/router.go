@@ -116,6 +116,10 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Get("/update/check", srv.handleUpdateCheck)
 		r.Post("/update/execute", srv.handleUpdateExecute)
 		r.Get("/update/status", srv.handleUpdateStatus)
+
+		r.Get("/services", srv.handleListServices)
+		r.Post("/services/restart", srv.handleRestartService)
+		r.Post("/services/restart-all", srv.handleRestartAll)
 	})
 
 	// Protected API routes (require JWT, with timeout)

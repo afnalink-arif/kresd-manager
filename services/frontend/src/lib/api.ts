@@ -91,6 +91,27 @@ export const updateAPI = {
   status: () => fetchAPI<{ in_progress: boolean }>("/api/admin/update/status"),
 };
 
+// Admin Services API
+export const servicesAPI = {
+  list: () => fetchAPI<ServiceInfo[]>("/api/admin/services"),
+  restart: (service: string) =>
+    fetch("/api/admin/services/restart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ service }),
+    }).then(async (r) => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Failed to restart");
+      return data;
+    }),
+};
+
+export interface ServiceInfo {
+  name: string;
+  status: string;
+  health: string;
+}
+
 export interface UpdateCheckResult {
   current_version: string;
   current_commit: string;
