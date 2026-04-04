@@ -121,6 +121,12 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Post("/update/execute", srv.handleUpdateExecute)
 		r.Get("/update/status", srv.handleUpdateStatus)
 
+		// RPZ Komdigi
+		r.Get("/rpz/config", srv.handleGetRPZConfig)
+		r.Put("/rpz/config", srv.handleUpdateRPZConfig)
+		r.Post("/rpz/sync", srv.handleRPZSync)
+		r.Get("/rpz/stats", srv.handleRPZStats)
+
 		// Block page config
 		r.Get("/blockpage/config", srv.handleGetBlockPageConfig)
 		r.Put("/blockpage/config", srv.handleUpdateBlockPageConfig)
@@ -266,6 +272,19 @@ func initPostgres(pool *pgxpool.Pool) error {
 			password_hash VARCHAR(255) NOT NULL,
 			role VARCHAR(20) NOT NULL DEFAULT 'viewer',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS rpz_config (
+			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			enabled BOOLEAN NOT NULL DEFAULT false,
+			master_servers TEXT NOT NULL DEFAULT '103.154.123.130,139.255.196.202',
+			zone_name VARCHAR(255) NOT NULL DEFAULT 'trustpositifkominfo',
+			last_sync TIMESTAMPTZ,
+			last_sync_status VARCHAR(20) DEFAULT '',
+			last_sync_error TEXT DEFAULT '',
+			domain_count INT NOT NULL DEFAULT 0,
+			file_size_bytes BIGINT NOT NULL DEFAULT 0,
+			sync_duration_ms INT NOT NULL DEFAULT 0,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS blockpage_config (
 			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),

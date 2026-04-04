@@ -127,6 +127,30 @@ export interface FilterRule {
   created_at: string;
 }
 
+// RPZ Komdigi API
+export const rpzAPI = {
+  getConfig: () => fetchAPI<RPZConfig>("/api/admin/rpz/config"),
+  updateConfig: (data: Partial<{ enabled: boolean; master_servers: string; zone_name: string }>) =>
+    fetch("/api/admin/rpz/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(data),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+  getStats: () => fetchAPI<{ config: RPZConfig; file_exists: boolean }>("/api/admin/rpz/stats"),
+};
+
+export interface RPZConfig {
+  enabled: boolean;
+  master_servers: string;
+  zone_name: string;
+  last_sync: string | null;
+  last_sync_status: string;
+  last_sync_error: string;
+  domain_count: number;
+  file_size_bytes: number;
+  sync_duration_ms: number;
+}
+
 // Block Page Config API
 export const blockpageAPI = {
   getConfig: () => fetchAPI<BlockPageConfig>("/api/admin/blockpage/config"),

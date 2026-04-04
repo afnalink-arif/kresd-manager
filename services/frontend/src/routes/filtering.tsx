@@ -2,9 +2,9 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
 import { authHeaders } from "~/lib/auth";
-import { filterAPI, blockpageAPI, type FilterRule, type BlockPageConfig } from "~/lib/api";
+import { filterAPI, blockpageAPI, rpzAPI, type FilterRule, type BlockPageConfig, type RPZConfig } from "~/lib/api";
 
-type Tab = "rules" | "blockpage";
+type Tab = "rules" | "rpz" | "blockpage";
 
 export default function FilteringPage() {
   const [activeTab, setActiveTab] = createSignal<Tab>("rules");
@@ -29,6 +29,11 @@ export default function FilteringPage() {
   });
   const [bpSaving, setBpSaving] = createSignal(false);
 
+  // RPZ
+  const [rpzConfig, setRpzConfig] = createSignal<RPZConfig | null>(null);
+  const [rpzSyncing, setRpzSyncing] = createSignal(false);
+  const [rpzOutput, setRpzOutput] = createSignal<string[]>([]);
+
   // Add domain
   const [newDomain, setNewDomain] = createSignal("");
   const [newCategory, setNewCategory] = createSignal("custom");
@@ -43,7 +48,7 @@ export default function FilteringPage() {
   // Search
   const [search, setSearch] = createSignal("");
 
-  onMount(() => { loadData(); loadBlockPageConfig(); });
+  onMount(() => { loadData(); loadBlockPageConfig(); loadRPZ(); });
 
   const loadData = async () => {
     setLoading(true);
@@ -73,6 +78,49 @@ export default function FilteringPage() {
 
   const updateBp = (key: keyof BlockPageConfig, value: any) => {
     setBpConfig((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const loadRPZ = async () => {
+    try {
+      const stats = await rpzAPI.getStats();
+      setRpzConfig(stats.config);
+    } catch {}
+  };
+
+  const handleRPZToggle = async () => {
+    const current = rpzConfig();
+    if (!current) return;
+    const newEnabled = !current.enabled;
+    try {
+      await rpzAPI.updateConfig({ enabled: newEnabled });
+      setRpzConfig({ ...current, enabled: newEnabled });
+      showMsg(newEnabled ? "RPZ Komdigi diaktifkan" : "RPZ Komdigi dinonaktifkan");
+    } catch (err: any) { showMsg(err.message, true); }
+  };
+
+  const handleRPZSync = async () => {
+    setRpzSyncing(true);
+    setRpzOutput([]);
+    try {
+      const res = await fetch("/api/admin/rpz/sync", { method: "POST", headers: authHeaders() });
+      if (!res.ok) { setRpzSyncing(false); return; }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) setRpzOutput((prev) => [...prev, line.slice(6)]);
+          else if (line.startsWith("event: done")) { setRpzSyncing(false); }
+        }
+      }
+    } catch {}
+    setRpzSyncing(false);
+    loadRPZ();
   };
 
   const showMsg = (text: string, error = false) => {
@@ -373,11 +421,135 @@ export default function FilteringPage() {
             class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${activeTab() === "rules" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-300"}`}>
             Filter Rules
           </button>
+          <button onClick={() => setActiveTab("rpz")}
+            class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${activeTab() === "rpz" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-300"}`}>
+            RPZ Komdigi
+          </button>
           <button onClick={() => setActiveTab("blockpage")}
             class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${activeTab() === "blockpage" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-300"}`}>
-            Block Page Design
+            Block Page
           </button>
         </div>
+
+        {/* RPZ Tab */}
+        <Show when={activeTab() === "rpz"}>
+          <div class="space-y-4">
+            {/* RPZ Enable/Disable Card */}
+            <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="text-sm font-medium text-white">RPZ Trust Positif Komdigi</h3>
+                  <p class="text-[10px] text-slate-500 mt-0.5">
+                    Response Policy Zone dari Kementerian Komunikasi dan Digital RI
+                  </p>
+                </div>
+                <button
+                  onClick={handleRPZToggle}
+                  class={`relative w-12 h-6 rounded-full transition-colors ${rpzConfig()?.enabled ? "bg-emerald-600" : "bg-slate-600"}`}
+                >
+                  <span class={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${rpzConfig()?.enabled ? "left-7" : "left-1"}`} />
+                </button>
+              </div>
+
+              <Show when={rpzConfig()?.enabled}>
+                <div class="p-2.5 bg-emerald-500/10 rounded-lg text-xs text-emerald-400 mb-4">
+                  RPZ aktif — domain dari Trust Positif Komdigi akan diblokir
+                </div>
+              </Show>
+              <Show when={!rpzConfig()?.enabled}>
+                <div class="p-2.5 bg-slate-700/50 rounded-lg text-xs text-slate-400 mb-4">
+                  RPZ nonaktif — blocklist Komdigi tidak diterapkan
+                </div>
+              </Show>
+
+              {/* Sync button */}
+              <div class="flex gap-2">
+                <button
+                  onClick={handleRPZSync}
+                  disabled={rpzSyncing()}
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  {rpzSyncing() ? "Syncing..." : "Sync Zone Transfer (AXFR)"}
+                </button>
+                <button onClick={loadRPZ}
+                  class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition-colors">
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                <p class="text-[10px] text-slate-500">Domain Diblokir</p>
+                <p class="text-xl font-bold text-white mt-1">{(rpzConfig()?.domain_count || 0).toLocaleString()}</p>
+              </div>
+              <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                <p class="text-[10px] text-slate-500">Ukuran Zone</p>
+                <p class="text-xl font-bold text-white mt-1">
+                  {rpzConfig()?.file_size_bytes ? (rpzConfig()!.file_size_bytes / 1024 / 1024).toFixed(1) + " MB" : "—"}
+                </p>
+              </div>
+              <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                <p class="text-[10px] text-slate-500">Sync Terakhir</p>
+                <p class="text-sm font-medium text-white mt-1">
+                  {rpzConfig()?.last_sync ? new Date(rpzConfig()!.last_sync!).toLocaleString("id-ID") : "Belum pernah"}
+                </p>
+              </div>
+              <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                <p class="text-[10px] text-slate-500">Status</p>
+                <p class={`text-sm font-medium mt-1 ${
+                  rpzConfig()?.last_sync_status === "success" ? "text-emerald-400" :
+                  rpzConfig()?.last_sync_status === "error" ? "text-red-400" : "text-slate-400"
+                }`}>
+                  {rpzConfig()?.last_sync_status === "success" ? "Berhasil" :
+                   rpzConfig()?.last_sync_status === "error" ? "Gagal" : "—"}
+                </p>
+                <Show when={rpzConfig()?.last_sync_error}>
+                  <p class="text-[10px] text-red-400 mt-1 truncate" title={rpzConfig()!.last_sync_error}>{rpzConfig()!.last_sync_error}</p>
+                </Show>
+              </div>
+            </div>
+
+            {/* Sync output */}
+            <Show when={rpzOutput().length > 0}>
+              <div class="bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50"
+                ref={(el) => {
+                  const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
+                  observer.observe(el, { childList: true, subtree: true });
+                }}>
+                <For each={rpzOutput()}>
+                  {(line) => (
+                    <div class={
+                      line.includes("[OK]") ? "text-emerald-400" :
+                      line.includes("[ERROR]") ? "text-red-400" :
+                      line.includes("[WARN]") ? "text-amber-400" :
+                      line.includes("[INFO]") ? "text-blue-400" :
+                      "text-slate-400"
+                    }>{line}</div>
+                  )}
+                </For>
+                <Show when={rpzSyncing()}>
+                  <div class="text-blue-400 animate-pulse mt-1">Syncing zone transfer...</div>
+                </Show>
+              </div>
+            </Show>
+
+            {/* Info */}
+            <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 space-y-2">
+              <p class="text-xs text-slate-500">
+                RPZ Trust Positif menggunakan <strong class="text-slate-400">DNS zone transfer (AXFR)</strong> dari server Komdigi.
+                IP server ini harus terdaftar terlebih dahulu.
+              </p>
+              <p class="text-xs text-slate-500">
+                Master: <code class="text-slate-400">{rpzConfig()?.master_servers || "103.154.123.130, 139.255.196.202"}</code>
+              </p>
+              <p class="text-xs text-slate-500">
+                Registrasi: <a href="http://bit.ly/FormKoneksiRPZ" target="_blank" class="text-blue-400 hover:underline">bit.ly/FormKoneksiRPZ</a>
+              </p>
+            </div>
+          </div>
+        </Show>
 
         {/* Block Page Settings Tab */}
         <Show when={activeTab() === "blockpage"}>

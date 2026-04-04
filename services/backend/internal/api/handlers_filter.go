@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -234,105 +233,27 @@ func (s *Server) handleFilterStats(w http.ResponseWriter, r *http.Request) {
 
 // handleApplyFilters regenerates kresd config with blocklist and restarts
 func (s *Server) handleApplyFilters(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	// Check if RPZ is enabled to include RPZ domains
+	rpzCfg := s.getRPZConfig()
+	s.regenerateKresdConfig(rpzCfg.Enabled)
 
-	// Get server IP from .env or config
-	serverIP := s.getServerIP()
-
-	// Get all enabled blocked domains
-	rows, err := s.pg.Query(ctx,
-		"SELECT domain FROM filter_rules WHERE enabled = true AND action = 'block' ORDER BY domain")
-	if err != nil {
-		http.Error(w, `{"error":"failed to query rules"}`, http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	var domains []string
-	for rows.Next() {
-		var d string
-		rows.Scan(&d)
-		domains = append(domains, d)
-	}
-
-	// Generate local-data YAML section
-	var localData strings.Builder
-	if len(domains) > 0 {
-		localData.WriteString("local-data:\n")
-		localData.WriteString("  records:\n")
-		for _, d := range domains {
-			// A record → server IP (for block page)
-			localData.WriteString(fmt.Sprintf("    - owner: %s.\n      ttl: 60\n      rdata: '%s'\n", d, serverIP))
-			// Also block www. variant
-			if !strings.HasPrefix(d, "*.") && !strings.HasPrefix(d, "www.") {
-				localData.WriteString(fmt.Sprintf("    - owner: www.%s.\n      ttl: 60\n      rdata: '%s'\n", d, serverIP))
-			}
-		}
-	}
-
-	// Regenerate kresd config from template
-	projectDir := s.cfg.ProjectDir
-	templatePath := filepath.Join(projectDir, "config/kresd/config.yaml.template")
-	configPath := filepath.Join(projectDir, "config/kresd/config.yaml")
-
-	templateData, err := os.ReadFile(templatePath)
-	if err != nil {
-		http.Error(w, `{"error":"failed to read config template"}`, http.StatusInternalServerError)
-		return
-	}
-
-	// Load .env for substitutions
-	envPath := filepath.Join(projectDir, ".env")
-	envVars := loadEnvFile(envPath)
-
-	cacheSize := envVars["CACHE_SIZE"]
-	if cacheSize == "" {
-		cacheSize = "8G"
-	}
-
-	// Build subnet views
-	subnets := envVars["ALLOWED_SUBNETS"]
-	var subnetViews strings.Builder
-	if subnets != "" {
-		for _, subnet := range strings.Split(subnets, ",") {
-			subnet = strings.TrimSpace(subnet)
-			if subnet != "" {
-				subnetViews.WriteString(fmt.Sprintf("  - subnets: ['%s']\n    answer: allow\n", subnet))
-			}
-		}
-	}
-
-	config := string(templateData)
-	config = strings.ReplaceAll(config, "__CACHE_SIZE__", cacheSize)
-	config = strings.ReplaceAll(config, "__SUBNET_VIEWS__", subnetViews.String())
-	config = strings.ReplaceAll(config, "__LOCAL_DATA__", localData.String())
-
-	// Write config
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
-		http.Error(w, `{"error":"failed to write config"}`, http.StatusInternalServerError)
-		return
-	}
-
-	// Restart kresd to apply
+	// Restart kresd
 	containerName := findContainerName("kresd")
 	if containerName != "" {
 		exec.Command("docker", "restart", containerName).Run()
 	}
 
-	log.Printf("Filter applied: %d domains blocked, kresd restarted", len(domains))
-	writeJSON(w, map[string]interface{}{
-		"message":        "filters applied",
-		"domains_blocked": len(domains),
-	})
-}
+	// Count custom domains
+	var count int
+	s.pg.QueryRow(r.Context(), "SELECT count(*) FROM filter_rules WHERE enabled = true AND action = 'block'").Scan(&count)
 
-// getServerIP reads SERVER_IP from .env
-func (s *Server) getServerIP() string {
-	envVars := loadEnvFile(filepath.Join(s.cfg.ProjectDir, ".env"))
-	if ip := envVars["SERVER_IP"]; ip != "" {
-		return ip
-	}
-	return "0.0.0.0" // fallback: just blackhole
+	log.Printf("Filter applied: %d custom domains + RPZ(%v), kresd restarted", count, rpzCfg.Enabled)
+	writeJSON(w, map[string]interface{}{
+		"message":         "filters applied",
+		"domains_blocked": count,
+		"rpz_enabled":     rpzCfg.Enabled,
+		"rpz_domains":     rpzCfg.DomainCount,
+	})
 }
 
 // loadEnvFile reads a .env file into a map
