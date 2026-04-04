@@ -114,6 +114,10 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 	rpzFile := filepath.Join(rpzDir, "rpz.zone")
 	tmpFile := rpzFile + ".tmp"
 
+	// Cleanup stale temp files from previous failed syncs
+	os.Remove(tmpFile)
+	os.Remove(tmpFile + ".converted")
+
 	var usedMaster string
 	var axfrErr error
 
