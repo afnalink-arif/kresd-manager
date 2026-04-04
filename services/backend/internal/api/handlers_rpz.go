@@ -190,6 +190,20 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 
 	sendEvent(fmt.Sprintf("[OK] Zone transfer from %s successful", usedMaster))
 
+	// Convert CNAME targets to "." for kresd compatibility
+	// Komdigi uses "CNAME lamanlabuh.aduankonten.id." but kresd only supports "CNAME ."
+	sendEvent("[INFO] Converting zone for kresd compatibility...")
+	convertedFile := tmpFile + ".converted"
+	converted, convertErr := convertRPZForKresd(tmpFile, convertedFile)
+	if convertErr != nil {
+		sendEvent(fmt.Sprintf("[WARN] Conversion error: %v — using raw zone", convertErr))
+		convertedFile = tmpFile
+	} else {
+		sendEvent(fmt.Sprintf("[OK] Converted %d CNAME records to NXDOMAIN format", converted))
+		os.Remove(tmpFile)
+		tmpFile = convertedFile
+	}
+
 	// Count domains by scanning the file (streaming, not loading all into memory)
 	sendEvent("[INFO] Counting domains in zone file...")
 	domainCount := countRPZDomains(tmpFile, cfg.ZoneName)
@@ -197,7 +211,6 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 
 	// Atomic rename: tmp → final
 	if err := os.Rename(tmpFile, rpzFile); err != nil {
-		// Fallback: copy
 		data, _ := os.ReadFile(tmpFile)
 		os.WriteFile(rpzFile, data, 0644)
 		os.Remove(tmpFile)
@@ -369,6 +382,57 @@ func (s *Server) regenerateKresdConfig(includeRPZ bool) {
 	config = strings.ReplaceAll(config, "__RPZ_LUA__", rpzLua)
 
 	os.WriteFile(configPath, []byte(config), 0644)
+}
+
+// convertRPZForKresd converts custom CNAME targets to "CNAME ." (NXDOMAIN).
+// Komdigi RPZ uses "CNAME lamanlabuh.aduankonten.id." which kresd doesn't support.
+// Streams line-by-line to handle 1.4GB+ files without memory issues.
+func convertRPZForKresd(src, dst string) (int, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
+
+	writer := bufio.NewWriterSize(out, 256*1024) // 256KB buffer for performance
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+
+	converted := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Convert custom CNAME targets to "." (NXDOMAIN)
+		// Skip rpz-passthru (whitelisted domains)
+		if strings.Contains(line, "CNAME") && !strings.Contains(line, "CNAME\t.") &&
+			!strings.Contains(line, "CNAME .") && !strings.Contains(strings.ToUpper(line), "RPZ-PASSTHRU") {
+			// Replace: "domain. TTL IN CNAME lamanlabuh.aduankonten.id." → "domain. TTL IN CNAME ."
+			fields := strings.Fields(line)
+			for i, f := range fields {
+				if strings.ToUpper(f) == "CNAME" && i+1 < len(fields) {
+					target := fields[i+1]
+					if target != "." && !strings.HasPrefix(strings.ToLower(target), "rpz-") {
+						fields[i+1] = "."
+						converted++
+					}
+					break
+				}
+			}
+			line = strings.Join(fields, "\t")
+		}
+
+		writer.WriteString(line)
+		writer.WriteString("\n")
+	}
+
+	writer.Flush()
+	return converted, scanner.Err()
 }
 
 // countRPZDomains counts unique blocked domains by scanning the zone file line by line.
