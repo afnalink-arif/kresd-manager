@@ -149,28 +149,25 @@ ok "Images rebuilt (version: ${APP_VERSION})"
 # ---- Step 4: Rolling restart ----
 info "Restarting services..."
 
-# Restart infra first (they have health checks)
+# Restart infra (stock images — just restart, don't recreate)
 info "  Restarting infrastructure services..."
-docker compose up -d clickhouse redis postgres
+docker compose restart clickhouse redis postgres
 sleep 3
 
-# Restart dnstap-ingester before kresd (socket dependency)
+# Recreate custom-built services with new images
 info "  Restarting dnstap-ingester..."
-docker compose up -d dnstap-ingester
+docker compose up -d --no-deps dnstap-ingester
 sleep 2
 
-# Restart kresd
 info "  Restarting kresd..."
-docker compose up -d kresd
+docker compose restart kresd
 sleep 2
 
-# Restart monitoring
 info "  Restarting monitoring..."
-docker compose up -d prometheus node-exporter
+docker compose restart prometheus node-exporter
 
-# Restart frontend first (static files, no state)
 info "  Restarting frontend..."
-docker compose up -d frontend
+docker compose up -d --no-deps frontend
 
 # Restart reverse proxy
 info "  Restarting caddy..."
