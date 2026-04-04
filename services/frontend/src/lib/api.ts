@@ -136,8 +136,14 @@ export const rpzAPI = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
-  getStats: () => fetchAPI<{ config: RPZConfig; file_exists: boolean }>("/api/admin/rpz/stats"),
+  getStats: () => fetchAPI<RPZStats>("/api/admin/rpz/stats"),
 };
+
+export interface RPZStats {
+  config: RPZConfig;
+  file_exists: boolean;
+  kresd_memory_mb: number;
+}
 
 export interface RPZConfig {
   enabled: boolean;

@@ -62,5 +62,11 @@ __SUBNET_VIEWS__
   - subnets: ['0.0.0.0/0', '::/0']
     answer: refused
 
-# DNS Filtering — blocked domains redirect to server IP (block page)
+# DNS Filtering — custom blocked domains redirect to server IP (block page)
 __LOCAL_DATA__
+
+# RPZ Komdigi — loaded natively via policy.rpz() for performance
+# This uses kresd's internal trie, much more efficient than local-data for 500K+ domains
+lua:
+  script: |
+    __RPZ_LUA__

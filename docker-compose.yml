@@ -25,6 +25,7 @@ services:
     volumes:
       - ./config/kresd/config.yaml:/etc/knot-resolver/config.yaml:ro
       - ./config/kresd/tls:/etc/knot-resolver/tls:ro
+      - ./config/kresd/rpz.zone:/etc/knot-resolver/rpz.zone:ro
       - kresd-cache:/var/cache/knot-resolver
       - dnstap-sock:/var/run/dnstap
     depends_on:

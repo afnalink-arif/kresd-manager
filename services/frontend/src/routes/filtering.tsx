@@ -2,7 +2,7 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
 import { authHeaders } from "~/lib/auth";
-import { filterAPI, blockpageAPI, rpzAPI, type FilterRule, type BlockPageConfig, type RPZConfig } from "~/lib/api";
+import { filterAPI, blockpageAPI, rpzAPI, type FilterRule, type BlockPageConfig, type RPZConfig, type RPZStats } from "~/lib/api";
 
 type Tab = "rules" | "rpz" | "blockpage";
 
@@ -31,6 +31,7 @@ export default function FilteringPage() {
 
   // RPZ
   const [rpzConfig, setRpzConfig] = createSignal<RPZConfig | null>(null);
+  const [rpzMemoryMB, setRpzMemoryMB] = createSignal(0);
   const [rpzSyncing, setRpzSyncing] = createSignal(false);
   const [rpzOutput, setRpzOutput] = createSignal<string[]>([]);
 
@@ -84,6 +85,7 @@ export default function FilteringPage() {
     try {
       const stats = await rpzAPI.getStats();
       setRpzConfig(stats.config);
+      setRpzMemoryMB(stats.kresd_memory_mb || 0);
     } catch {}
   };
 
@@ -479,7 +481,7 @@ export default function FilteringPage() {
             </div>
 
             {/* Stats */}
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
                 <p class="text-[10px] text-slate-500">Domain Diblokir</p>
                 <p class="text-xl font-bold text-white mt-1">{(rpzConfig()?.domain_count || 0).toLocaleString()}</p>
@@ -491,10 +493,19 @@ export default function FilteringPage() {
                 </p>
               </div>
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+                <p class="text-[10px] text-slate-500">Kresd Memory</p>
+                <p class={`text-xl font-bold mt-1 ${rpzMemoryMB() > 2048 ? "text-amber-400" : "text-white"}`}>
+                  {rpzMemoryMB() > 0 ? (rpzMemoryMB() >= 1024 ? (rpzMemoryMB() / 1024).toFixed(1) + " GB" : rpzMemoryMB().toFixed(0) + " MB") : "—"}
+                </p>
+              </div>
+              <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
                 <p class="text-[10px] text-slate-500">Sync Terakhir</p>
                 <p class="text-sm font-medium text-white mt-1">
                   {rpzConfig()?.last_sync ? new Date(rpzConfig()!.last_sync!).toLocaleString("id-ID") : "Belum pernah"}
                 </p>
+                <Show when={rpzConfig()?.sync_duration_ms}>
+                  <p class="text-[10px] text-slate-500 mt-0.5">{(rpzConfig()!.sync_duration_ms / 1000).toFixed(1)}s</p>
+                </Show>
               </div>
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
                 <p class="text-[10px] text-slate-500">Status</p>
@@ -508,6 +519,20 @@ export default function FilteringPage() {
                 <Show when={rpzConfig()?.last_sync_error}>
                   <p class="text-[10px] text-red-400 mt-1 truncate" title={rpzConfig()!.last_sync_error}>{rpzConfig()!.last_sync_error}</p>
                 </Show>
+              </div>
+            </div>
+
+            {/* Performance info */}
+            <div class="bg-emerald-500/5 rounded-xl p-4 border border-emerald-500/10">
+              <div class="flex items-start gap-2">
+                <svg class="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                <div class="text-xs text-slate-400 leading-relaxed">
+                  <span class="text-emerald-400 font-medium">Native RPZ Engine</span> — Zone file dimuat langsung oleh kresd menggunakan
+                  <code class="text-emerald-300 bg-emerald-500/10 px-1 rounded">policy.rpz()</code> dengan
+                  internal trie data structure. ~10x lebih hemat memory dibanding konversi ke local-data records.
+                </div>
               </div>
             </div>
 

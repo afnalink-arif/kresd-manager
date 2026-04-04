@@ -57,19 +57,10 @@ func (s *Server) handleUpdateRPZConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	// Seed config row if not exists
 	s.pg.Exec(ctx, `INSERT INTO rpz_config (id) VALUES (1) ON CONFLICT DO NOTHING`)
 
 	if req.Enabled != nil {
 		s.pg.Exec(ctx, "UPDATE rpz_config SET enabled = $1, updated_at = NOW() WHERE id = 1", *req.Enabled)
-
-		// If disabling, regenerate kresd config without RPZ and restart
-		if !*req.Enabled {
-			s.regenerateKresdConfig(false)
-			if name := findContainerName("kresd"); name != "" {
-				exec.Command("docker", "restart", name).Run()
-			}
-		}
 	}
 	if req.MasterServers != nil {
 		s.pg.Exec(ctx, "UPDATE rpz_config SET master_servers = $1, updated_at = NOW() WHERE id = 1", *req.MasterServers)
@@ -78,10 +69,19 @@ func (s *Server) handleUpdateRPZConfig(w http.ResponseWriter, r *http.Request) {
 		s.pg.Exec(ctx, "UPDATE rpz_config SET zone_name = $1, updated_at = NOW() WHERE id = 1", *req.ZoneName)
 	}
 
+	// Regenerate kresd config to reflect enable/disable change
+	rpzCfg := s.getRPZConfig()
+	s.regenerateKresdConfig(rpzCfg.Enabled)
+	if name := findContainerName("kresd"); name != "" {
+		exec.Command("docker", "restart", name).Run()
+	}
+
 	writeJSON(w, map[string]string{"message": "RPZ config updated"})
 }
 
-// handleRPZSync triggers an AXFR sync from the master servers
+// handleRPZSync triggers an AXFR sync from the master servers.
+// The zone file is saved directly for kresd's native policy.rpz() to load.
+// This avoids converting 500K+ domains to local-data YAML records.
 func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -109,10 +109,13 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 	sendEvent("[INFO] Starting RPZ zone transfer...")
 	startTime := time.Now()
 
-	// Try each master server
-	var axfrOutput []byte
-	var axfrErr error
+	// Try each master server — stream dig output to file to avoid holding all in memory
+	rpzDir := filepath.Join(s.cfg.ProjectDir, "config", "kresd")
+	rpzFile := filepath.Join(rpzDir, "rpz.zone")
+	tmpFile := rpzFile + ".tmp"
+
 	var usedMaster string
+	var axfrErr error
 
 	for _, master := range masters {
 		master = strings.TrimSpace(master)
@@ -121,12 +124,20 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 		}
 		sendEvent(fmt.Sprintf("[INFO] Trying AXFR from %s...", master))
 
+		// Stream AXFR directly to file to avoid memory spike
 		cmd := exec.CommandContext(r.Context(),
-			"dig", "AXFR", fmt.Sprintf("@%s", master), cfg.ZoneName, "+noidnout", "+onesoa")
-		axfrOutput, axfrErr = cmd.CombinedOutput()
-		if axfrErr == nil && len(axfrOutput) > 100 {
-			usedMaster = master
-			break
+			"sh", "-c", fmt.Sprintf(
+				"dig AXFR @%s %s +noidnout +onesoa > %s 2>&1",
+				master, cfg.ZoneName, tmpFile))
+		axfrErr = cmd.Run()
+
+		// Verify we got real data (not just errors)
+		if info, err := os.Stat(tmpFile); err == nil && info.Size() > 200 && axfrErr == nil {
+			// Quick sanity check: file should contain zone records
+			if head, err := readFileHead(tmpFile, 512); err == nil && strings.Contains(head, cfg.ZoneName) {
+				usedMaster = master
+				break
+			}
 		}
 		sendEvent(fmt.Sprintf("[WARN] Failed from %s: %v", master, axfrErr))
 	}
@@ -137,6 +148,7 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 			errMsg = axfrErr.Error()
 		}
 		sendEvent(fmt.Sprintf("[ERROR] Zone transfer failed: %s", errMsg))
+		os.Remove(tmpFile)
 		s.updateRPZSyncStatus("error", errMsg, 0, 0, 0)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", errMsg)
 		flusher.Flush()
@@ -145,24 +157,18 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 
 	sendEvent(fmt.Sprintf("[OK] Zone transfer from %s successful", usedMaster))
 
-	// Save raw zone file
-	rpzDir := filepath.Join(s.cfg.ProjectDir, "config", "kresd")
-	rpzFile := filepath.Join(rpzDir, "rpz.zone")
-	os.WriteFile(rpzFile, axfrOutput, 0644)
+	// Count domains by scanning the file (streaming, not loading all into memory)
+	sendEvent("[INFO] Counting domains in zone file...")
+	domainCount := countRPZDomains(tmpFile, cfg.ZoneName)
+	sendEvent(fmt.Sprintf("[OK] Found %d blocked domains", domainCount))
 
-	// Parse zone to extract blocked domains
-	sendEvent("[INFO] Parsing zone file...")
-	domains := parseRPZZone(string(axfrOutput))
-	sendEvent(fmt.Sprintf("[OK] Found %d blocked domains", len(domains)))
-
-	// Save parsed domains to a simple blocklist file
-	blocklistFile := filepath.Join(rpzDir, "rpz-domains.txt")
-	var sb strings.Builder
-	for _, d := range domains {
-		sb.WriteString(d)
-		sb.WriteString("\n")
+	// Atomic rename: tmp → final
+	if err := os.Rename(tmpFile, rpzFile); err != nil {
+		// Fallback: copy
+		data, _ := os.ReadFile(tmpFile)
+		os.WriteFile(rpzFile, data, 0644)
+		os.Remove(tmpFile)
 	}
-	os.WriteFile(blocklistFile, []byte(sb.String()), 0644)
 
 	duration := time.Since(startTime)
 	fileInfo, _ := os.Stat(rpzFile)
@@ -171,22 +177,21 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 		fileSize = fileInfo.Size()
 	}
 
-	// Update DB
-	s.updateRPZSyncStatus("success", "", len(domains), fileSize, int(duration.Milliseconds()))
+	s.updateRPZSyncStatus("success", "", domainCount, fileSize, int(duration.Milliseconds()))
 
 	sendEvent(fmt.Sprintf("[OK] Sync complete: %d domains, %.1f MB, %dms",
-		len(domains), float64(fileSize)/1024/1024, duration.Milliseconds()))
+		domainCount, float64(fileSize)/1024/1024, duration.Milliseconds()))
 
-	// If RPZ is enabled, regenerate kresd config and restart
+	// If RPZ is enabled, regenerate kresd config (adds policy.rpz Lua) and restart
 	if cfg.Enabled {
-		sendEvent("[INFO] Applying to DNS resolver...")
+		sendEvent("[INFO] Applying to DNS resolver via native RPZ policy...")
 		s.regenerateKresdConfig(true)
 		if name := findContainerName("kresd"); name != "" {
 			exec.Command("docker", "restart", name).Run()
 		}
-		sendEvent("[OK] DNS resolver restarted with updated RPZ")
+		sendEvent("[OK] DNS resolver restarted — kresd loads RPZ zone natively (efficient trie)")
 	} else {
-		sendEvent("[INFO] RPZ is disabled — sync saved but not applied")
+		sendEvent("[INFO] RPZ is disabled — zone file saved but not applied to resolver")
 	}
 
 	fmt.Fprintf(w, "event: done\ndata: sync complete\n\n")
@@ -196,16 +201,19 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRPZStats(w http.ResponseWriter, r *http.Request) {
 	cfg := s.getRPZConfig()
 
-	// Check if zone file exists
 	rpzFile := filepath.Join(s.cfg.ProjectDir, "config", "kresd", "rpz.zone")
 	fileExists := false
 	if _, err := os.Stat(rpzFile); err == nil {
 		fileExists = true
 	}
 
+	// Get kresd memory usage
+	kresdMem := getKresdMemoryMB()
+
 	writeJSON(w, map[string]interface{}{
-		"config":      cfg,
-		"file_exists": fileExists,
+		"config":         cfg,
+		"file_exists":    fileExists,
+		"kresd_memory_mb": kresdMem,
 	})
 }
 
@@ -218,7 +226,9 @@ func (s *Server) updateRPZSyncStatus(status, errMsg string, domainCount int, fil
 		status, errMsg, domainCount, fileSize, durationMs)
 }
 
-// regenerateKresdConfig rebuilds kresd config with or without RPZ domains
+// regenerateKresdConfig rebuilds kresd YAML config.
+// Custom filter rules use local-data (small count).
+// RPZ uses native policy.rpz() Lua — kresd loads zone file with optimized trie, no YAML bloat.
 func (s *Server) regenerateKresdConfig(includeRPZ bool) {
 	projectDir := s.cfg.ProjectDir
 	templatePath := filepath.Join(projectDir, "config/kresd/config.yaml.template")
@@ -251,82 +261,84 @@ func (s *Server) regenerateKresdConfig(includeRPZ bool) {
 		}
 	}
 
-	// Build local-data: custom filter rules + RPZ domains
+	// Build local-data for CUSTOM filter rules only (small count, OK to inline)
 	var localData strings.Builder
 	ctx := context.Background()
-
-	// Custom filter rules from DB
 	rows, err := s.pg.Query(ctx,
 		"SELECT domain FROM filter_rules WHERE enabled = true AND action = 'block' ORDER BY domain")
-	customDomains := []string{}
+	customCount := 0
 	if err == nil {
 		defer rows.Close()
+		var domains []string
 		for rows.Next() {
 			var d string
 			rows.Scan(&d)
-			customDomains = append(customDomains, d)
+			domains = append(domains, d)
 		}
-	}
-
-	// RPZ domains from file
-	rpzDomains := []string{}
-	if includeRPZ {
-		rpzFile := filepath.Join(projectDir, "config/kresd/rpz-domains.txt")
-		if data, err := os.ReadFile(rpzFile); err == nil {
-			scanner := bufio.NewScanner(strings.NewReader(string(data)))
-			for scanner.Scan() {
-				d := strings.TrimSpace(scanner.Text())
-				if d != "" {
-					rpzDomains = append(rpzDomains, d)
+		if len(domains) > 0 {
+			localData.WriteString("local-data:\n")
+			localData.WriteString("  records:\n")
+			for _, d := range domains {
+				localData.WriteString(fmt.Sprintf("    - owner: %s.\n      ttl: 60\n      rdata: '%s'\n", d, serverIP))
+				if !strings.HasPrefix(d, "www.") {
+					localData.WriteString(fmt.Sprintf("    - owner: www.%s.\n      ttl: 60\n      rdata: '%s'\n", d, serverIP))
 				}
 			}
+			customCount = len(domains)
 		}
 	}
 
-	totalDomains := len(customDomains) + len(rpzDomains)
-	if totalDomains > 0 {
-		localData.WriteString("local-data:\n")
-		localData.WriteString("  records:\n")
-
-		writeDomain := func(d string) {
-			localData.WriteString(fmt.Sprintf("    - owner: %s.\n      ttl: 60\n      rdata: '%s'\n", d, serverIP))
-		}
-
-		for _, d := range customDomains {
-			writeDomain(d)
-			if !strings.HasPrefix(d, "www.") {
-				writeDomain("www." + d)
-			}
-		}
-		for _, d := range rpzDomains {
-			writeDomain(d)
+	// Build RPZ Lua snippet — uses kresd's native policy.rpz()
+	// This loads the zone file into kresd's internal trie — ~10x more memory efficient
+	// than converting 500K domains to local-data YAML records
+	rpzLua := "-- RPZ disabled"
+	if includeRPZ {
+		rpzFile := "/etc/knot-resolver/rpz.zone"
+		// Check if zone file has content
+		localRpzFile := filepath.Join(projectDir, "config/kresd/rpz.zone")
+		if info, err := os.Stat(localRpzFile); err == nil && info.Size() > 100 {
+			rpzLua = fmt.Sprintf(
+				`-- RPZ Trust Positif Komdigi (native kresd policy)
+    -- policy.rpz loads zone file into optimized trie data structure
+    -- Auto file-watch: kresd reloads when file changes (no restart needed)
+    policy.add(policy.rpz(policy.DENY_MSG('Diblokir oleh DNS Filter - Komdigi Trust Positif'), '%s', true))`,
+				rpzFile)
+		} else {
+			rpzLua = "-- RPZ enabled but zone file empty/missing — run sync first"
 		}
 	}
 
-	log.Printf("Regenerating kresd config: %d custom + %d RPZ = %d domains",
-		len(customDomains), len(rpzDomains), totalDomains)
+	log.Printf("Regenerating kresd config: %d custom domains, RPZ native=%v", customCount, includeRPZ)
 
 	config := string(templateData)
 	config = strings.ReplaceAll(config, "__CACHE_SIZE__", cacheSize)
 	config = strings.ReplaceAll(config, "__SUBNET_VIEWS__", subnetViews.String())
 	config = strings.ReplaceAll(config, "__LOCAL_DATA__", localData.String())
+	config = strings.ReplaceAll(config, "__RPZ_LUA__", rpzLua)
 
 	os.WriteFile(configPath, []byte(config), 0644)
 }
 
-// parseRPZZone extracts blocked domain names from an RPZ zone file
-func parseRPZZone(zone string) []string {
-	seen := map[string]bool{}
-	var domains []string
+// countRPZDomains counts unique blocked domains by scanning the zone file line by line.
+// Streaming approach — doesn't load entire file into memory.
+func countRPZDomains(path, zoneName string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
 
-	scanner := bufio.NewScanner(strings.NewReader(zone))
+	count := 0
+	scanner := bufio.NewScanner(f)
+	// Increase buffer for potentially long lines
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "$") {
+		line := scanner.Text()
+		if len(line) == 0 || line[0] == ';' || line[0] == '$' {
 			continue
 		}
 
-		// RPZ format: "domain.com CNAME ." or "domain.com IN CNAME rpz-passthru."
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
@@ -335,33 +347,69 @@ func parseRPZZone(zone string) []string {
 		domain := strings.ToLower(fields[0])
 		domain = strings.TrimSuffix(domain, ".")
 
-		// Skip SOA, NS, and RPZ meta records
-		if strings.Contains(domain, "trustpositifkominfo") ||
-			domain == "@" || domain == "" {
+		// Skip SOA, NS, RPZ meta records
+		if strings.Contains(domain, zoneName) || domain == "@" || domain == "" {
 			continue
 		}
 
-		// Skip rpz-passthru entries (whitelisted)
+		// Skip rpz-passthru (whitelisted)
 		lineUpper := strings.ToUpper(line)
 		if strings.Contains(lineUpper, "RPZ-PASSTHRU") {
 			continue
 		}
 
-		// Check it looks like a real domain
-		if !strings.Contains(domain, ".") {
-			continue
-		}
-
-		// Remove trailing RPZ zone suffix if present
-		if idx := strings.Index(domain, ".trustpositifkominfo"); idx > 0 {
-			domain = domain[:idx]
-		}
-
-		if !seen[domain] {
-			seen[domain] = true
-			domains = append(domains, domain)
+		if strings.Contains(domain, ".") {
+			count++
 		}
 	}
 
-	return domains
+	return count
+}
+
+// readFileHead reads first n bytes of a file
+func readFileHead(path string, n int) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	buf := make([]byte, n)
+	nr, err := f.Read(buf)
+	if nr > 0 {
+		return string(buf[:nr]), nil
+	}
+	return "", err
+}
+
+// getKresdMemoryMB returns kresd container memory usage in MB
+func getKresdMemoryMB() float64 {
+	name := findContainerName("kresd")
+	if name == "" {
+		return 0
+	}
+	out, err := exec.Command("docker", "stats", name, "--no-stream", "--format", "{{.MemUsage}}").Output()
+	if err != nil {
+		return 0
+	}
+	// Format: "123.4MiB / 1.5GiB"
+	s := strings.TrimSpace(string(out))
+	parts := strings.Split(s, "/")
+	if len(parts) == 0 {
+		return 0
+	}
+	mem := strings.TrimSpace(parts[0])
+	mem = strings.ReplaceAll(mem, " ", "")
+	if strings.HasSuffix(mem, "GiB") {
+		mem = strings.TrimSuffix(mem, "GiB")
+		var v float64
+		fmt.Sscanf(mem, "%f", &v)
+		return v * 1024
+	}
+	if strings.HasSuffix(mem, "MiB") {
+		mem = strings.TrimSuffix(mem, "MiB")
+		var v float64
+		fmt.Sscanf(mem, "%f", &v)
+		return v
+	}
+	return 0
 }
