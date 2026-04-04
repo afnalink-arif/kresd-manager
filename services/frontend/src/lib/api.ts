@@ -127,6 +127,29 @@ export interface FilterRule {
   created_at: string;
 }
 
+// Block Page Config API
+export const blockpageAPI = {
+  getConfig: () => fetchAPI<BlockPageConfig>("/api/admin/blockpage/config"),
+  updateConfig: (config: BlockPageConfig) =>
+    fetch("/api/admin/blockpage/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(config),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+};
+
+export interface BlockPageConfig {
+  title: string;
+  subtitle: string;
+  message: string;
+  contact: string;
+  bg_color: string;
+  accent_color: string;
+  show_domain: boolean;
+  show_logo: boolean;
+  footer_text: string;
+}
+
 // Admin Services API
 export const servicesAPI = {
   list: () => fetchAPI<ServiceInfo[]>("/api/admin/services"),

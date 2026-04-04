@@ -6,9 +6,9 @@
     }
 
     handle {
-        root * /srv/blockpage
-        try_files /blockpage.html
-        file_server
+        reverse_proxy backend:8080 {
+            rewrite /blockpage
+        }
     }
 }
 

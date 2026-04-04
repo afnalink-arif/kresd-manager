@@ -2,15 +2,32 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
 import { authHeaders } from "~/lib/auth";
-import { filterAPI, type FilterRule } from "~/lib/api";
+import { filterAPI, blockpageAPI, type FilterRule, type BlockPageConfig } from "~/lib/api";
+
+type Tab = "rules" | "blockpage";
 
 export default function FilteringPage() {
+  const [activeTab, setActiveTab] = createSignal<Tab>("rules");
   const [rules, setRules] = createSignal<FilterRule[]>([]);
   const [stats, setStats] = createSignal<any>(null);
   const [loading, setLoading] = createSignal(true);
   const [applying, setApplying] = createSignal(false);
   const [msg, setMsg] = createSignal("");
   const [msgError, setMsgError] = createSignal(false);
+
+  // Block page config
+  const [bpConfig, setBpConfig] = createSignal<BlockPageConfig>({
+    title: "Akses Diblokir",
+    subtitle: "Domain ini telah diblokir oleh administrator jaringan melalui DNS filtering.",
+    message: "Jika Anda merasa ini adalah kesalahan, silakan hubungi administrator.",
+    contact: "",
+    bg_color: "#0f172a",
+    accent_color: "#ef4444",
+    show_domain: true,
+    show_logo: true,
+    footer_text: "DNS Filter — Knot DNS Monitor",
+  });
+  const [bpSaving, setBpSaving] = createSignal(false);
 
   // Add domain
   const [newDomain, setNewDomain] = createSignal("");
@@ -26,7 +43,7 @@ export default function FilteringPage() {
   // Search
   const [search, setSearch] = createSignal("");
 
-  onMount(() => { loadData(); });
+  onMount(() => { loadData(); loadBlockPageConfig(); });
 
   const loadData = async () => {
     setLoading(true);
@@ -39,6 +56,23 @@ export default function FilteringPage() {
       setStats(statsData);
     } catch {}
     setLoading(false);
+  };
+
+  const loadBlockPageConfig = async () => {
+    try { setBpConfig(await blockpageAPI.getConfig()); } catch {}
+  };
+
+  const handleSaveBlockPage = async () => {
+    setBpSaving(true);
+    try {
+      await blockpageAPI.updateConfig(bpConfig());
+      showMsg("Block page disimpan");
+    } catch (err: any) { showMsg(err.message, true); }
+    setBpSaving(false);
+  };
+
+  const updateBp = (key: keyof BlockPageConfig, value: any) => {
+    setBpConfig((prev) => ({ ...prev, [key]: value }));
   };
 
   const showMsg = (text: string, error = false) => {
@@ -147,6 +181,9 @@ export default function FilteringPage() {
             {msg()}
           </div>
         </Show>
+
+        {/* Rules Tab Content */}
+        <Show when={activeTab() === "rules"}>
 
         {/* KPI */}
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -328,13 +365,144 @@ export default function FilteringPage() {
           </Show>
         </div>
 
-        {/* Info */}
-        <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-          <p class="text-xs text-slate-500">
-            Setelah menambah/menghapus domain, klik <strong class="text-emerald-400">Terapkan Filter</strong> untuk
-            mengupdate konfigurasi DNS resolver. Domain yang diblokir akan diarahkan ke halaman block page.
-          </p>
+        </Show>
+
+        {/* Tabs */}
+        <div class="flex gap-1 bg-slate-800/50 rounded-lg p-1">
+          <button onClick={() => setActiveTab("rules")}
+            class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${activeTab() === "rules" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-300"}`}>
+            Filter Rules
+          </button>
+          <button onClick={() => setActiveTab("blockpage")}
+            class={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${activeTab() === "blockpage" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-300"}`}>
+            Block Page Design
+          </button>
         </div>
+
+        {/* Block Page Settings Tab */}
+        <Show when={activeTab() === "blockpage"}>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Settings Form */}
+            <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 space-y-4">
+              <h3 class="text-sm font-medium text-white mb-3">Kustomisasi Block Page</h3>
+
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Judul</label>
+                <input type="text" class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                  value={bpConfig().title} onInput={(e) => updateBp("title", e.target.value)} />
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Subjudul</label>
+                <textarea rows={2} class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                  value={bpConfig().subtitle} onInput={(e) => updateBp("subtitle", e.target.value)} />
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Pesan Tambahan</label>
+                <textarea rows={2} class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                  value={bpConfig().message} onInput={(e) => updateBp("message", e.target.value)} />
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Info Kontak (opsional)</label>
+                <input type="text" placeholder="Email: admin@example.com" class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
+                  value={bpConfig().contact} onInput={(e) => updateBp("contact", e.target.value)} />
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Footer</label>
+                <input type="text" class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                  value={bpConfig().footer_text} onInput={(e) => updateBp("footer_text", e.target.value)} />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">Background</label>
+                  <div class="flex items-center gap-2">
+                    <input type="color" class="w-8 h-8 rounded border-0 cursor-pointer"
+                      value={bpConfig().bg_color} onInput={(e) => updateBp("bg_color", e.target.value)} />
+                    <input type="text" class="flex-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500 transition"
+                      value={bpConfig().bg_color} onInput={(e) => updateBp("bg_color", e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">Accent</label>
+                  <div class="flex items-center gap-2">
+                    <input type="color" class="w-8 h-8 rounded border-0 cursor-pointer"
+                      value={bpConfig().accent_color} onInput={(e) => updateBp("accent_color", e.target.value)} />
+                    <input type="text" class="flex-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500 transition"
+                      value={bpConfig().accent_color} onInput={(e) => updateBp("accent_color", e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-blue-500"
+                    checked={bpConfig().show_domain} onChange={(e) => updateBp("show_domain", e.target.checked)} />
+                  <span class="text-xs text-slate-400">Tampilkan domain</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-blue-500"
+                    checked={bpConfig().show_logo} onChange={(e) => updateBp("show_logo", e.target.checked)} />
+                  <span class="text-xs text-slate-400">Tampilkan ikon</span>
+                </label>
+              </div>
+
+              <button onClick={handleSaveBlockPage} disabled={bpSaving()}
+                class="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
+                {bpSaving() ? "Menyimpan..." : "Simpan Block Page"}
+              </button>
+            </div>
+
+            {/* Live Preview */}
+            <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+              <div class="px-4 py-2.5 border-b border-slate-700 flex items-center justify-between">
+                <span class="text-xs text-slate-400">Preview</span>
+                <a href="/blockpage" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                  Buka di tab baru
+                </a>
+              </div>
+              <div class="aspect-[4/3] relative overflow-hidden" style={`background:${bpConfig().bg_color}`}>
+                {/* Mini preview */}
+                <div class="absolute inset-0 flex items-center justify-center p-6">
+                  <div class="w-full max-w-[280px] text-center p-5 rounded-xl border border-white/10" style="background:rgba(255,255,255,0.04);backdrop-filter:blur(20px)">
+                    <Show when={bpConfig().show_logo}>
+                      <div class="w-10 h-10 mx-auto mb-3 rounded-full flex items-center justify-center" style={`background:${bpConfig().accent_color}`}>
+                        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                        </svg>
+                      </div>
+                    </Show>
+                    <h3 class="text-sm font-bold text-white mb-1">{bpConfig().title}</h3>
+                    <Show when={bpConfig().show_domain}>
+                      <div class="text-[10px] font-mono px-2 py-1 rounded my-2" style={`color:${bpConfig().accent_color};background:rgba(0,0,0,0.3)`}>
+                        blocked-domain.com
+                      </div>
+                    </Show>
+                    <p class="text-[10px] text-slate-400 leading-relaxed">{bpConfig().subtitle}</p>
+                    <p class="text-[10px] text-slate-500 mt-1">{bpConfig().message}</p>
+                    <Show when={bpConfig().contact}>
+                      <div class="mt-2 text-[9px] text-blue-300 bg-blue-500/10 rounded px-2 py-1">{bpConfig().contact}</div>
+                    </Show>
+                    <div class="mt-3 text-[8px] text-slate-600">{bpConfig().footer_text}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        {/* Info */}
+        <Show when={activeTab() === "rules"}>
+          <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+            <p class="text-xs text-slate-500">
+              Setelah menambah/menghapus domain, klik <strong class="text-emerald-400">Terapkan Filter</strong> untuk
+              mengupdate konfigurasi DNS resolver. Domain yang diblokir akan diarahkan ke halaman block page.
+            </p>
+          </div>
+        </Show>
       </div>
     </Layout>
   );

@@ -98,6 +98,9 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		MaxAge:           300,
 	}))
 
+	// Block page (public, no auth — served to blocked domain visitors)
+	r.Get("/blockpage", srv.handleBlockPage)
+
 	// Public routes (no auth)
 	r.Get("/api/health", srv.handleHealth)
 	r.Get("/api/version", srv.handleVersion)
@@ -116,6 +119,10 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Get("/update/check", srv.handleUpdateCheck)
 		r.Post("/update/execute", srv.handleUpdateExecute)
 		r.Get("/update/status", srv.handleUpdateStatus)
+
+		// Block page config
+		r.Get("/blockpage/config", srv.handleGetBlockPageConfig)
+		r.Put("/blockpage/config", srv.handleUpdateBlockPageConfig)
 
 		// DNS Filtering
 		r.Get("/filters", srv.handleListFilters)
@@ -258,6 +265,19 @@ func initPostgres(pool *pgxpool.Pool) error {
 			password_hash VARCHAR(255) NOT NULL,
 			role VARCHAR(20) NOT NULL DEFAULT 'viewer',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS blockpage_config (
+			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			title VARCHAR(255) NOT NULL DEFAULT 'Akses Diblokir',
+			subtitle VARCHAR(500) NOT NULL DEFAULT 'Domain ini telah diblokir oleh administrator jaringan melalui DNS filtering.',
+			message VARCHAR(500) NOT NULL DEFAULT 'Jika Anda merasa ini adalah kesalahan, silakan hubungi administrator.',
+			contact VARCHAR(255) NOT NULL DEFAULT '',
+			bg_color VARCHAR(20) NOT NULL DEFAULT '#0f172a',
+			accent_color VARCHAR(20) NOT NULL DEFAULT '#ef4444',
+			show_domain BOOLEAN NOT NULL DEFAULT true,
+			show_logo BOOLEAN NOT NULL DEFAULT true,
+			footer_text VARCHAR(255) NOT NULL DEFAULT 'DNS Filter — Knot DNS Monitor',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS filter_rules (
 			id SERIAL PRIMARY KEY,
