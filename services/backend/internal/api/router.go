@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -20,12 +21,14 @@ import (
 )
 
 type Server struct {
-	cfg        *config.Config
-	promURL    string
-	ch         driver.Conn
-	pg         *pgxpool.Pool
-	rdb        *redis.Client
-	httpClient *http.Client
+	cfg          *config.Config
+	promURL      string
+	ch           driver.Conn
+	pg           *pgxpool.Pool
+	rdb          *redis.Client
+	httpClient   *http.Client
+	clusterRole  atomic.Value // stores current role string
+	pollerCancel context.CancelFunc
 }
 
 func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
@@ -73,6 +76,9 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 			Timeout: 10 * time.Second,
 		},
 	}
+
+	// Initialize cluster role from DB (or seed from env)
+	srv.initClusterRole()
 
 	r := chi.NewRouter()
 
@@ -158,7 +164,49 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Get("/ws/live", srv.handleWebSocket)
 	})
 
+	// Cluster agent API (machine-to-machine, cluster token auth)
+	r.Route("/api/cluster/agent", func(r chi.Router) {
+		r.Use(srv.clusterTokenMiddleware)
+		r.Get("/health", srv.handleHealth)
+		r.Get("/metrics/overview", srv.handleMetricsOverview)
+		r.Get("/metrics/qps", srv.handleMetricsQPS)
+		r.Get("/metrics/latency", srv.handleMetricsLatency)
+		r.Get("/metrics/cache", srv.handleMetricsCache)
+		r.Get("/metrics/system", srv.handleMetricsSystem)
+		r.Get("/queries/top-domains", srv.handleTopDomains)
+		r.Get("/version", srv.handleVersion)
+		r.Post("/update/execute", srv.handleUpdateExecute)
+		r.Get("/update/check", srv.handleUpdateCheck)
+		r.Get("/update/status", srv.handleUpdateStatus)
+		r.Post("/pair", srv.handleClusterPair)
+	})
+
+	// Cluster controller API (JWT + admin auth)
+	r.Route("/api/cluster", func(r chi.Router) {
+		r.Use(srv.authMiddleware)
+
+		// Any authenticated user can read cluster config
+		r.Get("/config", srv.handleClusterConfig)
+
+		// Admin-only routes
+		r.Group(func(r chi.Router) {
+			r.Use(srv.adminMiddleware)
+			r.Put("/config", srv.handleUpdateClusterConfig)
+			r.Get("/nodes", srv.handleListNodes)
+			r.Post("/nodes", srv.handleAddNode)
+			r.Put("/nodes/{id}", srv.handleUpdateNode)
+			r.Delete("/nodes/{id}", srv.handleDeleteNode)
+			r.Get("/nodes/{id}/metrics", srv.handleNodeMetrics)
+			r.Post("/nodes/{id}/update", srv.handlePushNodeUpdate)
+			r.Post("/nodes/update-all", srv.handlePushUpdateAll)
+			r.Get("/overview", srv.handleClusterOverview)
+		})
+	})
+
 	cleanup := func() {
+		if srv.pollerCancel != nil {
+			srv.pollerCancel()
+		}
 		ch.Close()
 		pg.Close()
 		rdb.Close()
@@ -197,6 +245,34 @@ func initPostgres(pool *pgxpool.Pool) error {
 			password_hash VARCHAR(255) NOT NULL,
 			role VARCHAR(20) NOT NULL DEFAULT 'viewer',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS cluster_config (
+			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			node_role VARCHAR(20) NOT NULL DEFAULT 'standalone',
+			node_name VARCHAR(255) NOT NULL DEFAULT '',
+			node_domain VARCHAR(255) NOT NULL DEFAULT '',
+			controller_domain VARCHAR(255) DEFAULT '',
+			controller_token VARCHAR(255) DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS cluster_nodes (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			domain VARCHAR(255) NOT NULL UNIQUE,
+			api_token VARCHAR(255) NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			version VARCHAR(50) DEFAULT '',
+			last_seen_at TIMESTAMPTZ,
+			last_error TEXT DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS cluster_metrics_cache (
+			node_id INT REFERENCES cluster_nodes(id) ON DELETE CASCADE,
+			metric_type VARCHAR(50) NOT NULL,
+			data JSONB NOT NULL,
+			fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (node_id, metric_type)
 		)`,
 	}
 

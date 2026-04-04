@@ -115,6 +115,78 @@ export interface ResolverInfo {
   server: { hostname: string; cpus: number };
 }
 
+// Cluster API
+export const clusterAPI = {
+  getConfig: () => fetchAPI<ClusterConfig>("/api/cluster/config"),
+  updateConfig: (config: Partial<ClusterConfig>) =>
+    fetch("/api/cluster/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(config),
+    }).then(async (r) => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Failed to update config");
+      return data;
+    }),
+  listNodes: () => fetchAPI<ClusterNode[]>("/api/cluster/nodes"),
+  addNode: (node: { name: string; domain: string }) =>
+    fetch("/api/cluster/nodes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(node),
+    }).then(async (r) => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Failed to add node");
+      return data as { id: number; name: string; domain: string; api_token: string };
+    }),
+  updateNode: (id: number, node: Partial<{ name: string; domain: string }>) =>
+    fetch(`/api/cluster/nodes/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(node),
+    }).then((r) => r.json()),
+  deleteNode: (id: number) =>
+    fetch(`/api/cluster/nodes/${id}`, { method: "DELETE", headers: authHeaders() }).then((r) => r.json()),
+  getNodeMetrics: (id: number) => fetchAPI<any>(`/api/cluster/nodes/${id}/metrics`),
+  getOverview: () => fetchAPI<ClusterOverview>("/api/cluster/overview"),
+};
+
+export interface ClusterConfig {
+  node_role: string;
+  node_name: string;
+  node_domain: string;
+  controller_domain: string;
+  controller_token: string;
+}
+
+export interface ClusterNode {
+  id: number;
+  name: string;
+  domain: string;
+  api_token?: string;
+  status: string;
+  version: string;
+  last_seen_at: string | null;
+  last_error: string;
+  created_at: string;
+}
+
+export interface ClusterOverview {
+  nodes: ClusterNodeOverview[];
+  node_count: number;
+}
+
+export interface ClusterNodeOverview {
+  id: number;
+  name: string;
+  domain: string;
+  status: string;
+  version: string;
+  last_seen_at: string | null;
+  last_error: string;
+  metrics: any;
+}
+
 // Auth API (public, no auth header needed)
 export const authAPI = {
   login: (username: string, password: string) =>

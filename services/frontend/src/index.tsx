@@ -14,6 +14,7 @@ import UpstreamsPage from "./routes/upstreams";
 import QueryLogs from "./routes/logs";
 import AlertsPage from "./routes/alerts";
 import SettingsPage from "./routes/settings";
+import ClusterPage from "./routes/cluster";
 
 // Auth guard wrapper
 function Protected(props: { component: Component }): JSX.Element {
@@ -36,6 +37,7 @@ render(
       <Route path="/logs" component={() => <Protected component={QueryLogs} />} />
       <Route path="/alerts" component={() => <Protected component={AlertsPage} />} />
       <Route path="/settings" component={() => <Protected component={SettingsPage} />} />
+      <Route path="/cluster" component={() => <Protected component={ClusterPage} />} />
     </Router>
   ),
   document.getElementById("app")!

@@ -1,7 +1,7 @@
 import { createSignal, onMount, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import { authHeaders, getToken, logout } from "~/lib/auth";
-import { updateAPI, type UpdateCheckResult } from "~/lib/api";
+import { updateAPI, clusterAPI, type UpdateCheckResult, type ClusterConfig, type ClusterNode } from "~/lib/api";
 
 export default function SettingsPage() {
   const [username, setUsername] = createSignal("");
@@ -31,6 +31,17 @@ export default function SettingsPage() {
   const [updateError, setUpdateError] = createSignal("");
   const [restarting, setRestarting] = createSignal(false);
 
+  // Cluster state
+  const [clusterConfig, setClusterConfig] = createSignal<ClusterConfig | null>(null);
+  const [clusterNodes, setClusterNodes] = createSignal<ClusterNode[]>([]);
+  const [clusterMsg, setClusterMsg] = createSignal("");
+  const [clusterError, setClusterError] = createSignal(false);
+  const [newNodeName, setNewNodeName] = createSignal("");
+  const [newNodeDomain, setNewNodeDomain] = createSignal("");
+  const [generatedToken, setGeneratedToken] = createSignal("");
+  const [agentControllerDomain, setAgentControllerDomain] = createSignal("");
+  const [agentToken, setAgentToken] = createSignal("");
+
   onMount(async () => {
     try {
       const res = await fetch("/api/auth/me", { headers: authHeaders() });
@@ -40,7 +51,119 @@ export default function SettingsPage() {
         setRole(data.role);
       }
     } catch {}
+    loadClusterConfig();
   });
+
+  const loadClusterConfig = async () => {
+    try {
+      const cfg = await clusterAPI.getConfig();
+      setClusterConfig(cfg);
+      setAgentControllerDomain(cfg.controller_domain || "");
+      setAgentToken(cfg.controller_token || "");
+      if (cfg.node_role === "controller") {
+        const nodes = await clusterAPI.listNodes();
+        setClusterNodes(nodes);
+      }
+    } catch {}
+  };
+
+  const handleRoleChange = async (newRole: string) => {
+    setClusterMsg("");
+    setClusterError(false);
+    try {
+      await clusterAPI.updateConfig({ node_role: newRole });
+      setClusterConfig((prev) => prev ? { ...prev, node_role: newRole } : null);
+      setClusterMsg(`Role changed to ${newRole}`);
+      if (newRole === "controller") {
+        const nodes = await clusterAPI.listNodes();
+        setClusterNodes(nodes);
+      }
+      // Reload page to update nav
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err: any) {
+      setClusterMsg(err.message);
+      setClusterError(true);
+    }
+  };
+
+  const handleAddNode = async (e: Event) => {
+    e.preventDefault();
+    setClusterMsg("");
+    setClusterError(false);
+    setGeneratedToken("");
+    try {
+      const result = await clusterAPI.addNode({ name: newNodeName(), domain: newNodeDomain() });
+      setGeneratedToken(result.api_token);
+      setClusterMsg(`Node "${result.name}" added. Copy the token below — it won't be shown again.`);
+      setNewNodeName("");
+      setNewNodeDomain("");
+      const nodes = await clusterAPI.listNodes();
+      setClusterNodes(nodes);
+    } catch (err: any) {
+      setClusterMsg(err.message);
+      setClusterError(true);
+    }
+  };
+
+  const handleDeleteNodeAction = async (id: number) => {
+    try {
+      await clusterAPI.deleteNode(id);
+      setClusterNodes((prev) => prev.filter((n) => n.id !== id));
+    } catch {}
+  };
+
+  const handleSaveAgentConfig = async () => {
+    setClusterMsg("");
+    setClusterError(false);
+    try {
+      await clusterAPI.updateConfig({
+        controller_domain: agentControllerDomain(),
+        controller_token: agentToken(),
+      });
+      setClusterMsg("Agent configuration saved");
+    } catch (err: any) {
+      setClusterMsg(err.message);
+      setClusterError(true);
+    }
+  };
+
+  const handleRemoteNodeUpdate = async (id: number) => {
+    setUpdateRunning(true);
+    setUpdateOutput([]);
+    setUpdateDone(false);
+    setUpdateError("");
+
+    try {
+      const res = await fetch(`/api/cluster/nodes/${id}/update`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setUpdateError(data.error || "Failed");
+        setUpdateRunning(false);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) setUpdateOutput((prev) => [...prev, line.slice(6)]);
+          else if (line.startsWith("event: done")) { setUpdateDone(true); setUpdateRunning(false); }
+        }
+      }
+      if (!updateDone()) { setUpdateDone(true); setUpdateRunning(false); }
+    } catch {
+      setUpdateDone(true);
+      setUpdateRunning(false);
+    }
+  };
 
   const handleChangePassword = async (e: Event) => {
     e.preventDefault();
@@ -339,6 +462,180 @@ export default function SettingsPage() {
                 Tambah User
               </button>
             </form>
+          </div>
+        )}
+
+        {/* Cluster Configuration (Admin Only) */}
+        {role() === "admin" && clusterConfig() && (
+          <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+            <h3 class="text-sm font-medium text-slate-400 mb-4">Cluster Configuration</h3>
+
+            {clusterMsg() && (
+              <div class={`mb-4 p-3 rounded-lg border text-sm ${
+                clusterError()
+                  ? "bg-red-500/10 border-red-500/20 text-red-400"
+                  : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+              }`}>
+                {clusterMsg()}
+              </div>
+            )}
+
+            {/* Role selector */}
+            <div class="mb-5">
+              <label class="block text-sm text-slate-400 mb-2">Node Role</label>
+              <div class="flex gap-2">
+                {(["standalone", "controller", "agent"] as const).map((r) => (
+                  <button
+                    onClick={() => handleRoleChange(r)}
+                    class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      clusterConfig()?.node_role === r
+                        ? r === "controller" ? "bg-blue-600 text-white"
+                        : r === "agent" ? "bg-purple-600 text-white"
+                        : "bg-slate-600 text-white"
+                        : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                    }`}
+                  >
+                    {r === "standalone" ? "Standalone" : r === "controller" ? "Controller (Pusat)" : "Agent (Node)"}
+                  </button>
+                ))}
+              </div>
+              <p class="text-xs text-slate-500 mt-2">
+                {clusterConfig()?.node_role === "controller" ? "Manage and monitor multiple DNS servers" :
+                 clusterConfig()?.node_role === "agent" ? "This server is managed by a controller" :
+                 "Single server mode, no clustering"}
+              </p>
+            </div>
+
+            {/* Controller: Node management */}
+            <Show when={clusterConfig()?.node_role === "controller"}>
+              <div class="border-t border-slate-700 pt-4 space-y-4">
+                <h4 class="text-sm font-medium text-slate-300">Registered Agents</h4>
+
+                <Show when={clusterNodes().length > 0}>
+                  <div class="space-y-2">
+                    <For each={clusterNodes()}>
+                      {(node) => (
+                        <div class="flex items-center justify-between bg-slate-900 rounded-lg p-3">
+                          <div class="flex items-center gap-3">
+                            <span class={`w-2 h-2 rounded-full ${
+                              node.status === "online" ? "bg-emerald-500" :
+                              node.status === "offline" ? "bg-red-500" :
+                              node.status === "pending" ? "bg-slate-500" : "bg-amber-500"
+                            }`} />
+                            <div>
+                              <p class="text-sm text-white">{node.name || node.domain}</p>
+                              <p class="text-xs text-slate-500">{node.domain} {node.version ? `- ${node.version}` : ""}</p>
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <span class={`text-xs capitalize ${
+                              node.status === "online" ? "text-emerald-400" :
+                              node.status === "offline" ? "text-red-400" : "text-slate-400"
+                            }`}>{node.status}</span>
+                            <button
+                              onClick={() => handleRemoteNodeUpdate(node.id)}
+                              disabled={updateRunning()}
+                              class="px-2 py-1 text-xs bg-amber-600/20 text-amber-400 rounded hover:bg-amber-600/30 transition-colors"
+                            >
+                              Update
+                            </button>
+                            <button
+                              onClick={() => handleDeleteNodeAction(node.id)}
+                              class="px-2 py-1 text-xs bg-red-600/20 text-red-400 rounded hover:bg-red-600/30 transition-colors"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+
+                {/* Generated token display */}
+                <Show when={generatedToken()}>
+                  <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <p class="text-xs text-amber-400 mb-2">API Token (copy this — shown only once):</p>
+                    <div class="flex items-center gap-2">
+                      <code class="flex-1 bg-slate-950 px-3 py-2 rounded text-xs text-white font-mono break-all select-all">{generatedToken()}</code>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(generatedToken())}
+                        class="px-3 py-2 bg-amber-600 text-white text-xs rounded hover:bg-amber-700 transition-colors"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Add node form */}
+                <form onSubmit={handleAddNode} class="space-y-3">
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Node Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="DNS Singapore 2"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                        value={newNodeName()}
+                        onInput={(e) => setNewNodeName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Domain</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="dns2.example.com"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                        value={newNodeDomain()}
+                        onInput={(e) => setNewNodeDomain(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                  >
+                    + Add Agent
+                  </button>
+                </form>
+              </div>
+            </Show>
+
+            {/* Agent: Controller config */}
+            <Show when={clusterConfig()?.node_role === "agent"}>
+              <div class="border-t border-slate-700 pt-4 space-y-4">
+                <h4 class="text-sm font-medium text-slate-300">Controller Connection</h4>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">Controller Domain</label>
+                  <input
+                    type="text"
+                    placeholder="dns1.example.com"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                    value={agentControllerDomain()}
+                    onInput={(e) => setAgentControllerDomain(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">Cluster Token</label>
+                  <input
+                    type="password"
+                    placeholder="Paste token from controller"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500 transition"
+                    value={agentToken()}
+                    onInput={(e) => setAgentToken(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={handleSaveAgentConfig}
+                  class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors"
+                >
+                  Save Agent Config
+                </button>
+              </div>
+            </Show>
           </div>
         )}
 

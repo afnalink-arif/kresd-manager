@@ -16,6 +16,8 @@ type Config struct {
 	CORSOrigins   []string
 	Version       string
 	ProjectDir    string
+	NodeRole      string // standalone | controller | agent
+	NodeName      string
 }
 
 func Load() *Config {
@@ -38,6 +40,8 @@ func Load() *Config {
 		JWTSecret:     jwtSecret,
 		CORSOrigins:   strings.Split(origins, ","),
 		ProjectDir:    envOrDefault("PROJECT_DIR", "/project"),
+		NodeRole:      envOrDefault("NODE_ROLE", "standalone"),
+		NodeName:      envOrDefault("NODE_NAME", ""),
 	}
 }
 

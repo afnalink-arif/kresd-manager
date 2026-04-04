@@ -132,6 +132,8 @@ services:
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       KRESD_METRICS_URL: http://kresd:5000/metrics
       PROJECT_DIR: /project
+      NODE_ROLE: "${NODE_ROLE:-standalone}"
+      NODE_NAME: "${NODE_NAME:-}"
     secrets:
       - jwt_secret
     depends_on:

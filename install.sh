@@ -27,6 +27,8 @@ ARG_IP=""
 ARG_DOMAIN=""
 ARG_SUBNETS=""
 ARG_CACHE=""
+ARG_ROLE=""
+ARG_NODE_NAME=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -34,6 +36,8 @@ while [[ $# -gt 0 ]]; do
         --domain)   ARG_DOMAIN="$2"; shift 2 ;;
         --subnets)  ARG_SUBNETS="$2"; shift 2 ;;
         --cache)    ARG_CACHE="$2"; shift 2 ;;
+        --role)     ARG_ROLE="$2"; shift 2 ;;
+        --node-name) ARG_NODE_NAME="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -42,6 +46,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --domain DOMAIN   Domain for dashboard (e.g. dns.example.com)"
             echo "  --subnets CIDRS   Comma-separated subnets to allow (e.g. 10.0.0.0/24,192.168.1.0/24)"
             echo "  --cache SIZE      DNS cache size (default: 8G)"
+            echo "  --role ROLE       Cluster role: standalone, controller, agent"
+            echo "  --node-name NAME  Node name for cluster identification"
             echo "  -h, --help        Show this help"
             echo ""
             echo "If options are omitted, the installer will ask interactively."
@@ -135,6 +141,35 @@ else
 fi
 ok "Cache size: ${CACHE_SIZE}"
 
+# Node role
+if [[ -n "$ARG_ROLE" ]]; then
+    NODE_ROLE="$ARG_ROLE"
+else
+    echo ""
+    info "Cluster Mode"
+    echo "  1) Standalone (default) - Single server, no cluster"
+    echo "  2) Controller (Pusat)   - Manage multiple DNS servers"
+    echo "  3) Agent (Node)         - Managed by a controller"
+    read -rp "  Select role [1]: " ROLE_CHOICE
+    ROLE_CHOICE="${ROLE_CHOICE:-1}"
+    case $ROLE_CHOICE in
+        2) NODE_ROLE="controller" ;;
+        3) NODE_ROLE="agent" ;;
+        *) NODE_ROLE="standalone" ;;
+    esac
+fi
+ok "Role: ${NODE_ROLE}"
+
+# Node name
+if [[ -n "$ARG_NODE_NAME" ]]; then
+    NODE_NAME="$ARG_NODE_NAME"
+else
+    DEFAULT_NODE_NAME=$(hostname -s 2>/dev/null || echo "dns-server")
+    read -rp "  Node name [${DEFAULT_NODE_NAME}]: " NODE_NAME
+    NODE_NAME="${NODE_NAME:-$DEFAULT_NODE_NAME}"
+fi
+ok "Node name: ${NODE_NAME}"
+
 # ---- Confirmation ----
 echo ""
 echo -e "${YELLOW}┌─────────────────────────────────────────┐${NC}"
@@ -144,6 +179,8 @@ echo -e "${YELLOW}│${NC}  IP:       ${SERVER_IP}"
 echo -e "${YELLOW}│${NC}  Domain:   ${DOMAIN}"
 echo -e "${YELLOW}│${NC}  Subnets:  ${SUBNETS}"
 echo -e "${YELLOW}│${NC}  Cache:    ${CACHE_SIZE}"
+echo -e "${YELLOW}│${NC}  Role:     ${NODE_ROLE}"
+echo -e "${YELLOW}│${NC}  Name:     ${NODE_NAME}"
 echo -e "${YELLOW}│${NC}  Dir:      ${PROJECT_DIR}"
 echo -e "${YELLOW}└─────────────────────────────────────────┘${NC}"
 echo ""
@@ -233,6 +270,8 @@ DOMAIN=${DOMAIN}
 ALLOWED_SUBNETS=${SUBNETS}
 CACHE_SIZE=${CACHE_SIZE}
 PG_PASSWORD=${PG_PASS}
+NODE_ROLE=${NODE_ROLE}
+NODE_NAME=${NODE_NAME}
 EOF
 ok "Created: .env"
 
