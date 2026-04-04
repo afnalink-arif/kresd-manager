@@ -61,3 +61,6 @@ __SUBNET_VIEWS__
   # REFUSE everyone else
   - subnets: ['0.0.0.0/0', '::/0']
     answer: refused
+
+# DNS Filtering — blocked domains redirect to server IP (block page)
+__LOCAL_DATA__

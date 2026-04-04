@@ -162,6 +162,7 @@ services:
       - "0.0.0.0:443:443"
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./config/blockpage.html:/srv/blockpage/blockpage.html:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

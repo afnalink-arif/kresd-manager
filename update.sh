@@ -126,12 +126,22 @@ if [[ -f config/kresd/config.yaml.template ]]; then
 "
     done
 
+    # Preserve existing local-data (filter blocklist) from current config
+    LOCAL_DATA=""
+    if [[ -f config/kresd/config.yaml ]]; then
+        LOCAL_DATA=$(sed -n '/^local-data:/,/^[^ ]/p' config/kresd/config.yaml | head -n -1)
+    fi
+
     TEMP_CONFIG=$(mktemp)
     while IFS= read -r line; do
         if [[ "$line" == *"__SUBNET_VIEWS__"* ]]; then
             printf '%s' "$SUBNET_VIEWS"
         elif [[ "$line" == *"__CACHE_SIZE__"* ]]; then
             echo "${line//__CACHE_SIZE__/$CACHE_SIZE}"
+        elif [[ "$line" == *"__LOCAL_DATA__"* ]]; then
+            if [[ -n "$LOCAL_DATA" ]]; then
+                printf '%s\n' "$LOCAL_DATA"
+            fi
         else
             echo "$line"
         fi

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Akses Diblokir</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.card{max-width:480px;text-align:center;padding:3rem 2rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;box-shadow:0 25px 50px rgba(0,0,0,.3)}
+.icon{width:64px;height:64px;margin:0 auto 1.5rem;background:#ef4444;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.icon svg{width:32px;height:32px;color:#fff}
+h1{font-size:1.25rem;font-weight:700;margin-bottom:.5rem}
+.domain{font-size:.875rem;color:#f87171;font-family:monospace;background:#1a1a2e;padding:.5rem 1rem;border-radius:.5rem;margin:1rem 0;word-break:break-all}
+p{font-size:.8rem;color:#94a3b8;line-height:1.6}
+.footer{margin-top:1.5rem;font-size:.7rem;color:#475569}
+</style>
+</head>
+<body>
+<div class="card">
+<div class="icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg></div>
+<h1>Akses Diblokir</h1>
+<div class="domain" id="d"></div>
+<p>Domain ini telah diblokir oleh administrator jaringan melalui DNS filtering.</p>
+<p style="margin-top:.75rem">Jika Anda merasa ini adalah kesalahan, silakan hubungi administrator.</p>
+<div class="footer">DNS Filter &mdash; Knot DNS Monitor</div>
+</div>
+<script>document.getElementById('d').textContent=location.hostname</script>
+</body>
+</html>

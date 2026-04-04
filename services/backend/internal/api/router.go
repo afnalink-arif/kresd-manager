@@ -117,6 +117,15 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Post("/update/execute", srv.handleUpdateExecute)
 		r.Get("/update/status", srv.handleUpdateStatus)
 
+		// DNS Filtering
+		r.Get("/filters", srv.handleListFilters)
+		r.Post("/filters", srv.handleAddFilter)
+		r.Delete("/filters/{id}", srv.handleDeleteFilter)
+		r.Put("/filters/{id}/toggle", srv.handleToggleFilter)
+		r.Post("/filters/import", srv.handleImportList)
+		r.Get("/filters/stats", srv.handleFilterStats)
+		r.Post("/filters/apply", srv.handleApplyFilters)
+
 		r.Get("/services", srv.handleListServices)
 		r.Post("/services/restart", srv.handleRestartService)
 		r.Post("/services/restart-all", srv.handleRestartAll)
@@ -248,6 +257,24 @@ func initPostgres(pool *pgxpool.Pool) error {
 			username VARCHAR(100) UNIQUE NOT NULL,
 			password_hash VARCHAR(255) NOT NULL,
 			role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS filter_rules (
+			id SERIAL PRIMARY KEY,
+			domain VARCHAR(255) NOT NULL,
+			action VARCHAR(20) NOT NULL DEFAULT 'block',
+			category VARCHAR(50) NOT NULL DEFAULT 'custom',
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS filter_lists (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			url TEXT NOT NULL DEFAULT '',
+			category VARCHAR(50) NOT NULL DEFAULT 'ads',
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			domain_count INT NOT NULL DEFAULT 0,
+			last_updated TIMESTAMPTZ,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS cluster_config (

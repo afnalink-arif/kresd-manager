@@ -91,6 +91,42 @@ export const updateAPI = {
   status: () => fetchAPI<{ in_progress: boolean }>("/api/admin/update/status"),
 };
 
+// DNS Filtering API
+export const filterAPI = {
+  list: () => fetchAPI<{ rules: FilterRule[]; lists: any[]; total_rules: number; total_enabled: number }>("/api/admin/filters"),
+  add: (rule: { domain: string; category?: string; action?: string }) =>
+    fetch("/api/admin/filters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(rule),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+  delete: (id: number) =>
+    fetch(`/api/admin/filters/${id}`, { method: "DELETE", headers: authHeaders() }).then((r) => r.json()),
+  toggle: (id: number) =>
+    fetch(`/api/admin/filters/${id}/toggle`, { method: "PUT", headers: authHeaders() }).then((r) => r.json()),
+  import: (data: { url?: string; domains?: string; category?: string }) =>
+    fetch("/api/admin/filters/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(data),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+  stats: () => fetchAPI<any>("/api/admin/filters/stats"),
+  apply: () =>
+    fetch("/api/admin/filters/apply", {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+};
+
+export interface FilterRule {
+  id: number;
+  domain: string;
+  action: string;
+  category: string;
+  enabled: boolean;
+  created_at: string;
+}
+
 // Admin Services API
 export const servicesAPI = {
   list: () => fetchAPI<ServiceInfo[]>("/api/admin/services"),

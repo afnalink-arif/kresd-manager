@@ -1,3 +1,17 @@
+# Block page — served when blocked domains resolve to this server IP
+:80 {
+    @dashboard host __DOMAIN__
+    handle @dashboard {
+        redir https://__DOMAIN__{uri} permanent
+    }
+
+    handle {
+        root * /srv/blockpage
+        try_files /blockpage.html
+        file_server
+    }
+}
+
 __DOMAIN__ {
     # Backend API + WebSocket
     handle /api/* {

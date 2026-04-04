@@ -253,6 +253,8 @@ while IFS= read -r line; do
         printf '%s' "$SUBNET_VIEWS"
     elif [[ "$line" == *"__CACHE_SIZE__"* ]]; then
         echo "${line//__CACHE_SIZE__/$CACHE_SIZE}"
+    elif [[ "$line" == *"__LOCAL_DATA__"* ]]; then
+        : # Empty on fresh install, populated by dashboard filtering
     else
         echo "$line"
     fi
