@@ -567,10 +567,14 @@ export default function FilteringPage() {
                 IP server ini harus terdaftar terlebih dahulu.
               </p>
               <p class="text-xs text-slate-500">
-                Master: <code class="text-slate-400">{rpzConfig()?.master_servers || "103.154.123.130, 139.255.196.202"}</code>
+                Master: <code class="text-slate-400">{rpzConfig()?.master_servers || "139.255.196.202, 182.23.79.202, 103.154.123.130"}</code>
               </p>
               <p class="text-xs text-slate-500">
-                Registrasi: <a href="http://bit.ly/FormKoneksiRPZ" target="_blank" class="text-blue-400 hover:underline">bit.ly/FormKoneksiRPZ</a>
+                Registrasi: <a href="https://s.komdigi.go.id/FormKoneksiRPZ" target="_blank" class="text-blue-400 hover:underline">s.komdigi.go.id/FormKoneksiRPZ</a>
+              </p>
+              <p class="text-xs text-amber-500/80">
+                Zone file berukuran ~1.3 GB. Proses sync memakan waktu beberapa menit tergantung koneksi.
+                Rekomendasi: RAM minimal 16 GB.
               </p>
             </div>
           </div>

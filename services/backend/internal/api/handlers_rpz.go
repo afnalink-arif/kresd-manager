@@ -28,7 +28,7 @@ type RPZConfig struct {
 
 func (s *Server) getRPZConfig() RPZConfig {
 	cfg := RPZConfig{
-		MasterServers: "103.154.123.130,139.255.196.202",
+		MasterServers: "139.255.196.202,182.23.79.202,103.154.123.130",
 		ZoneName:      "trustpositifkominfo",
 	}
 	ctx := context.Background()
@@ -125,11 +125,33 @@ func (s *Server) handleRPZSync(w http.ResponseWriter, r *http.Request) {
 		sendEvent(fmt.Sprintf("[INFO] Trying AXFR from %s...", master))
 
 		// Stream AXFR directly to file to avoid memory spike
-		cmd := exec.CommandContext(r.Context(),
+		// Zone file is ~1.3GB so use a long timeout (30 min) and +tcp for large transfer
+		axfrCtx, axfrCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		cmd := exec.CommandContext(axfrCtx,
 			"sh", "-c", fmt.Sprintf(
-				"dig AXFR @%s %s +noidnout +onesoa > %s 2>&1",
+				"dig AXFR @%s %s +noidnout +onesoa +tcp +time=300 +tries=2 > %s 2>&1",
 				master, cfg.ZoneName, tmpFile))
-		axfrErr = cmd.Run()
+
+		// Monitor file size during download (progress updates)
+		done := make(chan error, 1)
+		go func() { done <- cmd.Run() }()
+
+		progressTicker := time.NewTicker(5 * time.Second)
+		defer progressTicker.Stop()
+	axfrLoop:
+		for {
+			select {
+			case axfrErr = <-done:
+				break axfrLoop
+			case <-progressTicker.C:
+				if info, err := os.Stat(tmpFile); err == nil {
+					sizeMB := float64(info.Size()) / 1024 / 1024
+					elapsed := time.Since(startTime).Seconds()
+					sendEvent(fmt.Sprintf("[INFO] Downloading... %.1f MB (%.0fs)", sizeMB, elapsed))
+				}
+			}
+		}
+		axfrCancel()
 
 		// Verify we got real data (not just errors)
 		if info, err := os.Stat(tmpFile); err == nil && info.Size() > 200 && axfrErr == nil {

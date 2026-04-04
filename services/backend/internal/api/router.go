@@ -279,7 +279,7 @@ func initPostgres(pool *pgxpool.Pool) error {
 		`CREATE TABLE IF NOT EXISTS rpz_config (
 			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
 			enabled BOOLEAN NOT NULL DEFAULT false,
-			master_servers TEXT NOT NULL DEFAULT '103.154.123.130,139.255.196.202',
+			master_servers TEXT NOT NULL DEFAULT '139.255.196.202,182.23.79.202,103.154.123.130',
 			zone_name VARCHAR(255) NOT NULL DEFAULT 'trustpositifkominfo',
 			last_sync TIMESTAMPTZ,
 			last_sync_status VARCHAR(20) DEFAULT '',
