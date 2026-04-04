@@ -15,7 +15,11 @@ export default function CachePage() {
 
   const hitRatio = () => {
     const d = cacheData();
-    return d ? extractValue(d.hit_ratio) : null;
+    if (!d?.hit_ratio) return null;
+    // hit_ratio comes from a range query, so extract the latest value from the time series
+    const ts = extractTimeSeries(d.hit_ratio);
+    if (ts.values.length === 0) return null;
+    return ts.values[ts.values.length - 1];
   };
 
   const hitRatioChart = () => {
