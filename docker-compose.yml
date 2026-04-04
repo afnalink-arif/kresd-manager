@@ -163,6 +163,7 @@ services:
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./config/blockpage.html:/srv/blockpage/blockpage.html:ro
+      - ./config/komdigi-logo.webp:/srv/blockpage/komdigi-logo.webp:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

@@ -100,6 +100,7 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 
 	// Block page (public, no auth — served to blocked domain visitors)
 	r.Get("/blockpage", srv.handleBlockPage)
+	r.Get("/blockpage/komdigi-logo.webp", srv.handleBlockPageLogo)
 
 	// Public routes (no auth)
 	r.Get("/api/health", srv.handleHealth)

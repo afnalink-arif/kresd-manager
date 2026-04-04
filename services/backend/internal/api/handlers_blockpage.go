@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 type BlockPageConfig struct {
@@ -20,17 +22,20 @@ type BlockPageConfig struct {
 	FooterText  string `json:"footer_text"`
 }
 
+var defaultBlockPageConfig = BlockPageConfig{
+	Title:       "Situs Ini Tidak Dapat Diakses",
+	Subtitle:    "Berdasarkan kebijakan Kementerian Komunikasi dan Digital (Komdigi) Republik Indonesia, akses ke situs ini telah dibatasi demi perlindungan pengguna internet Indonesia.",
+	Message:     "Pemblokiran ini merupakan bagian dari upaya menciptakan ruang digital yang aman, sehat, dan bertanggung jawab bagi seluruh masyarakat. Terima kasih atas pengertian dan kerja sama Anda.",
+	Contact:     "",
+	BgColor:     "#0a0e1a",
+	AccentColor: "#dc2626",
+	ShowDomain:  true,
+	ShowLogo:    true,
+	FooterText:  "Internet Sehat dan Aman — Kementerian Komunikasi dan Digital RI",
+}
+
 func (s *Server) getBlockPageConfig() BlockPageConfig {
-	cfg := BlockPageConfig{
-		Title:       "Akses Diblokir",
-		Subtitle:    "Domain ini telah diblokir oleh administrator jaringan melalui DNS filtering.",
-		Message:     "Jika Anda merasa ini adalah kesalahan, silakan hubungi administrator.",
-		BgColor:     "#0f172a",
-		AccentColor: "#ef4444",
-		ShowDomain:  true,
-		ShowLogo:    true,
-		FooterText:  "DNS Filter — Knot DNS Monitor",
-	}
+	cfg := defaultBlockPageConfig
 
 	ctx := context.Background()
 	s.pg.QueryRow(ctx,
@@ -65,6 +70,18 @@ func (s *Server) handleUpdateBlockPageConfig(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]string{"message": "block page config updated"})
 }
 
+func (s *Server) handleBlockPageLogo(w http.ResponseWriter, r *http.Request) {
+	logoPath := filepath.Join(s.cfg.ProjectDir, "config", "komdigi-logo.webp")
+	data, err := os.ReadFile(logoPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/webp")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(data)
+}
+
 // handleBlockPage serves the glassmorphism block page HTML
 func (s *Server) handleBlockPage(w http.ResponseWriter, r *http.Request) {
 	cfg := s.getBlockPageConfig()
@@ -77,8 +94,11 @@ func (s *Server) handleBlockPage(w http.ResponseWriter, r *http.Request) {
 
 	logoBlock := ""
 	if cfg.ShowLogo {
-		logoBlock = fmt.Sprintf(`<div class="icon" style="background:%s">
-<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+		logoBlock = fmt.Sprintf(`<div class="logo-section">
+<img src="/blockpage/komdigi-logo.webp" alt="Komdigi" class="komdigi-logo" onerror="this.style.display='none'">
+<div class="icon" style="background:%s">
+<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+</div>
 </div>`, e(cfg.AccentColor))
 	}
 
@@ -95,36 +115,48 @@ func (s *Server) handleBlockPage(w http.ResponseWriter, r *http.Request) {
 <title>%s</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:%s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:%s;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;overflow:hidden;color:#e2e8f0}
 
-/* animated gradient background */
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20%% 50%%,%s15,transparent 70%%),radial-gradient(ellipse at 80%% 20%%,rgba(59,130,246,.08),transparent 60%%),radial-gradient(ellipse at 50%% 80%%,rgba(168,85,247,.06),transparent 60%%);animation:pulse 8s ease-in-out infinite alternate}
-@keyframes pulse{0%%{opacity:.6}100%%{opacity:1}}
+body::before{content:'';position:fixed;inset:0;background:
+  radial-gradient(ellipse at 15%% 50%%,%s12,transparent 65%%),
+  radial-gradient(ellipse at 85%% 15%%,rgba(59,130,246,.06),transparent 55%%),
+  radial-gradient(ellipse at 50%% 85%%,rgba(99,102,241,.05),transparent 55%%);
+  animation:pulse 10s ease-in-out infinite alternate}
+@keyframes pulse{0%%{opacity:.5}100%%{opacity:1}}
 
-/* floating orbs */
-.orb{position:fixed;border-radius:50%%;filter:blur(80px);opacity:.15;animation:float 20s ease-in-out infinite}
-.orb-1{width:400px;height:400px;background:%s;top:-100px;left:-100px;animation-delay:0s}
-.orb-2{width:300px;height:300px;background:#3b82f6;bottom:-80px;right:-80px;animation-delay:-7s}
-.orb-3{width:200px;height:200px;background:#8b5cf6;top:50%%;left:50%%;animation-delay:-14s}
-@keyframes float{0%%,100%%{transform:translate(0,0) scale(1)}25%%{transform:translate(30px,-40px) scale(1.1)}50%%{transform:translate(-20px,30px) scale(.95)}75%%{transform:translate(40px,20px) scale(1.05)}}
+.orb{position:fixed;border-radius:50%%;filter:blur(100px);opacity:.1;animation:drift 25s ease-in-out infinite}
+.orb-1{width:500px;height:500px;background:%s;top:-150px;left:-150px}
+.orb-2{width:350px;height:350px;background:#1d4ed8;bottom:-100px;right:-100px;animation-delay:-8s}
+.orb-3{width:250px;height:250px;background:#7c3aed;top:40%%;right:20%%;animation-delay:-16s}
+@keyframes drift{0%%,100%%{transform:translate(0,0) scale(1)}33%%{transform:translate(40px,-50px) scale(1.08)}66%%{transform:translate(-30px,40px) scale(.94)}}
 
-/* glassmorphism card */
-.card{position:relative;z-index:1;max-width:480px;width:90%%;text-align:center;padding:2.5rem 2rem;background:rgba(255,255,255,.04);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:1.25rem;border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 32px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05)}
-.card::before{content:'';position:absolute;inset:0;border-radius:1.25rem;background:linear-gradient(135deg,rgba(255,255,255,.06) 0%%,transparent 50%%);pointer-events:none}
+.card{position:relative;z-index:1;max-width:520px;width:92%%;text-align:center;padding:2.5rem 2rem 2rem;
+  background:rgba(255,255,255,.03);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border-radius:1.5rem;border:1px solid rgba(255,255,255,.06);
+  box-shadow:0 8px 40px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.02) inset}
+.card::before{content:'';position:absolute;inset:0;border-radius:1.5rem;background:linear-gradient(160deg,rgba(255,255,255,.05) 0%%,transparent 40%%);pointer-events:none}
 
-.icon{width:56px;height:56px;margin:0 auto 1.25rem;border-radius:50%%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px %s40}
-.icon svg{width:28px;height:28px;color:#fff}
+.logo-section{display:flex;align-items:center;justify-content:center;gap:.75rem;margin-bottom:1.5rem}
+.komdigi-logo{height:48px;width:auto;filter:brightness(0) invert(1);opacity:.85}
+.icon{width:44px;height:44px;border-radius:50%%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 25px %s30;flex-shrink:0}
+.icon svg{width:22px;height:22px;color:#fff}
 
-h1{font-size:1.2rem;font-weight:700;color:#f1f5f9;letter-spacing:-.02em;margin-bottom:.4rem}
+h1{font-size:1.15rem;font-weight:700;color:#f8fafc;letter-spacing:-.01em;margin-bottom:.75rem;line-height:1.4}
 
-.domain{font-size:.8rem;color:%s;font-family:'SF Mono',Monaco,Consolas,monospace;background:rgba(0,0,0,.3);padding:.5rem 1rem;border-radius:.6rem;margin:1rem 0;word-break:break-all;border:1px solid %s20}
+.domain{font-size:.78rem;color:%s;font-family:'SF Mono',Monaco,Consolas,monospace;background:rgba(0,0,0,.35);padding:.55rem 1rem;border-radius:.65rem;margin:1rem auto;word-break:break-all;border:1px solid %s15;max-width:90%%;display:inline-block}
 
-p{font-size:.78rem;color:#94a3b8;line-height:1.7}
-.msg{margin-top:.6rem;color:#64748b}
+.desc{font-size:.8rem;color:#94a3b8;line-height:1.75;margin-bottom:.5rem;text-align:justify;text-align-last:center}
+.desc-secondary{font-size:.75rem;color:#64748b;line-height:1.7;text-align:justify;text-align-last:center}
 
-.contact{margin-top:1rem;padding:.6rem 1rem;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.15);border-radius:.5rem;font-size:.75rem;color:#93c5fd}
+.divider{width:40px;height:2px;background:linear-gradient(90deg,%s,%s00);margin:1rem auto;border-radius:1px}
 
-.footer{margin-top:1.5rem;font-size:.65rem;color:#334155;letter-spacing:.03em}
+.contact{margin-top:1rem;padding:.6rem 1rem;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.1);border-radius:.6rem;font-size:.72rem;color:#93c5fd}
+
+.footer{margin-top:1.5rem;font-size:.63rem;color:#475569;letter-spacing:.02em;line-height:1.5}
+
+.badge{display:inline-flex;align-items:center;gap:.35rem;margin-top:1rem;padding:.4rem .8rem;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.12);border-radius:2rem;font-size:.65rem;color:#4ade80}
+.badge svg{width:12px;height:12px}
 </style>
 </head>
 <body>
@@ -135,9 +167,14 @@ p{font-size:.78rem;color:#94a3b8;line-height:1.7}
 %s
 <h1>%s</h1>
 %s
-<p>%s</p>
-<p class="msg">%s</p>
+<p class="desc">%s</p>
+<div class="divider"></div>
+<p class="desc-secondary">%s</p>
 %s
+<div class="badge">
+<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+Dilindungi DNS Filtering
+</div>
 <div class="footer">%s</div>
 </div>
 <script>var d=document.getElementById('d');if(d)d.textContent=location.hostname</script>
@@ -145,6 +182,8 @@ p{font-size:.78rem;color:#94a3b8;line-height:1.7}
 </html>`,
 		e(cfg.Title),
 		e(cfg.BgColor),
+		e(cfg.AccentColor),
+		e(cfg.AccentColor),
 		e(cfg.AccentColor),
 		e(cfg.AccentColor),
 		e(cfg.AccentColor),

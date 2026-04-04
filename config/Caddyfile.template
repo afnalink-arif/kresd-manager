@@ -5,6 +5,12 @@
         redir https://__DOMAIN__{uri} permanent
     }
 
+    handle /blockpage/* {
+        root * /srv/blockpage
+        uri strip_prefix /blockpage
+        file_server
+    }
+
     handle {
         reverse_proxy backend:8080 {
             rewrite /blockpage

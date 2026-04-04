@@ -17,15 +17,15 @@ export default function FilteringPage() {
 
   // Block page config
   const [bpConfig, setBpConfig] = createSignal<BlockPageConfig>({
-    title: "Akses Diblokir",
-    subtitle: "Domain ini telah diblokir oleh administrator jaringan melalui DNS filtering.",
-    message: "Jika Anda merasa ini adalah kesalahan, silakan hubungi administrator.",
+    title: "Situs Ini Tidak Dapat Diakses",
+    subtitle: "Berdasarkan kebijakan Kementerian Komunikasi dan Digital (Komdigi) Republik Indonesia, akses ke situs ini telah dibatasi demi perlindungan pengguna internet Indonesia.",
+    message: "Pemblokiran ini merupakan bagian dari upaya menciptakan ruang digital yang aman, sehat, dan bertanggung jawab bagi seluruh masyarakat. Terima kasih atas pengertian dan kerja sama Anda.",
     contact: "",
-    bg_color: "#0f172a",
-    accent_color: "#ef4444",
+    bg_color: "#0a0e1a",
+    accent_color: "#dc2626",
     show_domain: true,
     show_logo: true,
-    footer_text: "DNS Filter — Knot DNS Monitor",
+    footer_text: "Internet Sehat dan Aman — Kementerian Komunikasi dan Digital RI",
   });
   const [bpSaving, setBpSaving] = createSignal(false);
 
