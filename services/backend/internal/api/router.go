@@ -121,6 +121,9 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Post("/update/execute", srv.handleUpdateExecute)
 		r.Get("/update/status", srv.handleUpdateStatus)
 
+		// DNS Lookup tool
+		r.Post("/dns/lookup", srv.handleDNSLookup)
+
 		// RPZ Komdigi
 		r.Get("/rpz/config", srv.handleGetRPZConfig)
 		r.Put("/rpz/config", srv.handleUpdateRPZConfig)

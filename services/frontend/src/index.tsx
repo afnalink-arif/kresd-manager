@@ -16,6 +16,7 @@ import AlertsPage from "./routes/alerts";
 import SettingsPage from "./routes/settings";
 import ClusterPage from "./routes/cluster";
 import FilteringPage from "./routes/filtering";
+import DNSLookupPage from "./routes/dns-lookup";
 
 // Auth guard wrapper
 function Protected(props: { component: Component }): JSX.Element {
@@ -40,6 +41,7 @@ render(
       <Route path="/settings" component={() => <Protected component={SettingsPage} />} />
       <Route path="/cluster" component={() => <Protected component={ClusterPage} />} />
       <Route path="/filtering" component={() => <Protected component={FilteringPage} />} />
+      <Route path="/dns-lookup" component={() => <Protected component={DNSLookupPage} />} />
     </Router>
   ),
   document.getElementById("app")!
