@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================
-# Knot DNS Monitor - Installer
+# Knot DNS Manager - Installer
 # ============================================
 # Usage:
 #   Interactive:  ./install.sh
@@ -60,7 +60,7 @@ done
 # ---- Banner ----
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Knot DNS Monitor - Installer v1.0      ║${NC}"
+echo -e "${BLUE}║   Knot DNS Manager - Installer v1.0      ║${NC}"
 echo -e "${BLUE}║   Knot Resolver 6.2 + Monitoring Stack   ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
 echo ""

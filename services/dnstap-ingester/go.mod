@@ -1,3 +1,3 @@
-module github.com/knot-dns-monitor/dnstap-ingester
+module github.com/knot-dns-manager/dnstap-ingester
 
 go 1.23

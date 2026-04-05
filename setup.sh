@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Knot DNS Monitor - Setup ==="
+echo "=== Knot DNS Manager - Setup ==="
 
 # Generate secrets
 echo "Generating secrets..."

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ============================================
-# Knot DNS Monitor - Updater
+# Knot DNS Manager - Updater
 # ============================================
 # Pulls latest code, rebuilds custom images,
 # and restarts services with zero-downtime DNS.
@@ -53,7 +53,7 @@ fi
 
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Knot DNS Monitor - Updater             ║${NC}"
+echo -e "${BLUE}║   Knot DNS Manager - Updater             ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════╝${NC}"
 echo ""
 

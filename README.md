@@ -1,4 +1,4 @@
-# Knot DNS Monitor
+# Knot DNS Manager
 
 **Production-grade DNS resolver with real-time monitoring dashboard.**
 
@@ -81,8 +81,8 @@ Built on [Knot Resolver 6.2](https://www.knot-resolver.cz/) with a full observab
 curl -fsSL https://get.docker.com | sh
 
 # Clone and install
-git clone https://github.com/afnalink-arif/knot-dns-monitor.git /root/knot-dns-monitor
-cd /root/knot-dns-monitor
+git clone https://github.com/afnalink-arif/knot-dns-manager.git /root/knot-dns-manager
+cd /root/knot-dns-manager
 ./install.sh
 ```
 
@@ -113,7 +113,7 @@ dig @127.0.0.1 google.com +short
 ## Architecture
 
 ```
-knot-dns-monitor/
+knot-dns-manager/
 ├── install.sh                  # Interactive installer
 ├── update.sh                   # Update & rebuild script
 ├── docker-compose.yml          # 10-service stack
@@ -164,7 +164,7 @@ Go to **Admin > Update** in the dashboard:
 ### From CLI
 
 ```bash
-cd /root/knot-dns-monitor
+cd /root/knot-dns-manager
 ./update.sh
 ```
 
@@ -175,7 +175,7 @@ This pulls the latest code, regenerates configs from templates, rebuilds custom 
 ```bash
 SERVERS=("root@10.0.0.1" "root@10.0.0.2" "root@10.0.0.3")
 for srv in "${SERVERS[@]}"; do
-  ssh "$srv" "cd /root/knot-dns-monitor && ./update.sh"
+  ssh "$srv" "cd /root/knot-dns-manager && ./update.sh"
 done
 ```
 

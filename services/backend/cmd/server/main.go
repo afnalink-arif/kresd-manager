@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/knot-dns-monitor/backend/internal/api"
-	"github.com/knot-dns-monitor/backend/internal/config"
+	"github.com/knot-dns-manager/backend/internal/api"
+	"github.com/knot-dns-manager/backend/internal/config"
 )
 
 var version = "dev"

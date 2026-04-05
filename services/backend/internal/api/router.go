@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/knot-dns-monitor/backend/internal/config"
+	"github.com/knot-dns-manager/backend/internal/config"
 )
 
 type Server struct {
@@ -303,7 +303,7 @@ func initPostgres(pool *pgxpool.Pool) error {
 			accent_color VARCHAR(20) NOT NULL DEFAULT '#ef4444',
 			show_domain BOOLEAN NOT NULL DEFAULT true,
 			show_logo BOOLEAN NOT NULL DEFAULT true,
-			footer_text VARCHAR(255) NOT NULL DEFAULT 'DNS Filter — Knot DNS Monitor',
+			footer_text VARCHAR(255) NOT NULL DEFAULT 'DNS Filter — Knot DNS Manager',
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS filter_rules (

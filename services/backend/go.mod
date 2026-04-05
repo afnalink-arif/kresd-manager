@@ -1,4 +1,4 @@
-module github.com/knot-dns-monitor/backend
+module github.com/knot-dns-manager/backend
 
 go 1.23
 

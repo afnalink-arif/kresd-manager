@@ -56,7 +56,7 @@ export default function LoginPage() {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
             </svg>
           </div>
-          <h1 class="text-2xl font-bold text-white">Knot DNS Monitor</h1>
+          <h1 class="text-2xl font-bold text-white">Knot DNS Manager</h1>
           <p class="text-sm text-slate-500 mt-1">
             {setupMode() ? "Create your admin account" : "Sign in to dashboard"}
           </p>
@@ -114,7 +114,7 @@ export default function LoginPage() {
         </form>
 
         <p class="text-center text-xs text-slate-600 mt-6">
-          Knot DNS Monitor v1.0 — Powered by Knot Resolver 6.2
+          Knot DNS Manager v1.0 — Powered by Knot Resolver 6.2
         </p>
       </div>
     </div>
