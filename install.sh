@@ -253,6 +253,8 @@ TEMP_CONFIG=$(mktemp)
 while IFS= read -r line; do
     if [[ "$line" == *"__SUBNET_VIEWS__"* ]]; then
         printf '%s' "$SUBNET_VIEWS"
+    elif [[ "$line" == *"__WORKERS__"* ]]; then
+        echo "${line//__WORKERS__/auto}"
     elif [[ "$line" == *"__CACHE_SIZE__"* ]]; then
         echo "${line//__CACHE_SIZE__/$CACHE_SIZE}"
     elif [[ "$line" == *"__LOCAL_DATA__"* ]]; then
