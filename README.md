@@ -152,6 +152,17 @@ knot-dns-monitor/
 
 ## Update
 
+Updates can be triggered directly from the dashboard or via CLI.
+
+### From Dashboard
+
+Go to **Admin > Update** in the dashboard:
+- **Check for updates** — compares local version with latest remote
+- **Execute update** — pulls code, rebuilds, and restarts with live progress via SSE stream
+- **Cluster update** — push updates to all connected nodes from the controller dashboard (Admin > Cluster > Update All)
+
+### From CLI
+
 ```bash
 cd /root/knot-dns-monitor
 ./update.sh
@@ -159,7 +170,7 @@ cd /root/knot-dns-monitor
 
 This pulls the latest code, regenerates configs from templates, rebuilds custom images, and does a rolling restart with health checks.
 
-### Multi-server update
+### Multi-server update (CLI)
 
 ```bash
 SERVERS=("root@10.0.0.1" "root@10.0.0.2" "root@10.0.0.3")
@@ -167,6 +178,8 @@ for srv in "${SERVERS[@]}"; do
   ssh "$srv" "cd /root/knot-dns-monitor && ./update.sh"
 done
 ```
+
+> For managed clusters, use the dashboard's cluster update feature instead — it handles node-by-node updates with status tracking.
 
 ## DNS Filtering & RPZ
 
