@@ -76,10 +76,6 @@ Or via CLI:
 ./update.sh
 ```
 
-## Documentation
-
-See [dns.md](dns.md) for full documentation including architecture, configuration, API reference, troubleshooting, and deployment guides.
-
 ## License
 
 [MIT](LICENSE) — © 2026 Afnalink
