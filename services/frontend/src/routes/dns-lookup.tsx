@@ -78,7 +78,7 @@ export default function DNSLookupPage() {
 
       // Add to history
       setHistory((prev) => [
-        { domain: d, type: qtype(), status: data.status, time: new Date().toLocaleTimeString("id-ID") },
+        { domain: d, type: qtype(), status: data.status, time: new Date().toLocaleTimeString() },
         ...prev.slice(0, 19),
       ]);
     } catch (err: any) {
@@ -121,7 +121,7 @@ export default function DNSLookupPage() {
         {/* Header */}
         <div>
           <h1 class="text-xl font-bold text-white">DNS Lookup</h1>
-          <p class="text-xs text-slate-500 mt-1">Test DNS resolver langsung dari dashboard — tanpa perlu SSH</p>
+          <p class="text-xs text-slate-500 mt-1">Test DNS resolution directly from the dashboard</p>
         </div>
 
         {/* Lookup Form */}
@@ -132,7 +132,7 @@ export default function DNSLookupPage() {
               <label class="block text-[10px] text-slate-500 mb-1">Domain</label>
               <input
                 type="text"
-                placeholder="contoh: google.com, reddit.com"
+                placeholder="e.g. google.com, reddit.com"
                 value={domain()}
                 onInput={(e) => setDomain(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && doLookup()}
@@ -143,7 +143,7 @@ export default function DNSLookupPage() {
 
             {/* Record type */}
             <div class="w-full md:w-28">
-              <label class="block text-[10px] text-slate-500 mb-1">Tipe</label>
+              <label class="block text-[10px] text-slate-500 mb-1">Type</label>
               <select
                 value={qtype()}
                 onChange={(e) => setQtype(e.target.value)}
@@ -311,7 +311,7 @@ export default function DNSLookupPage() {
                   return (
                     <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                       <div class="px-4 py-2.5 border-b border-slate-700">
-                        <span class="text-xs text-slate-400 font-medium">Perbandingan: Local vs Google DNS</span>
+                        <span class="text-xs text-slate-400 font-medium">Comparison: Local vs Google DNS</span>
                       </div>
                       <div class="grid grid-cols-2 divide-x divide-slate-700">
                         <div class="p-4">
@@ -347,12 +347,12 @@ export default function DNSLookupPage() {
                       </div>
                       <Show when={localBlocked() && extOk()}>
                         <div class="px-4 py-2 bg-red-500/5 border-t border-red-500/10 text-[10px] text-red-400">
-                          Domain ini diblokir di local resolver tapi resolve normal di Google DNS — filtering aktif bekerja
+                          Blocked on local resolver but resolves on Google DNS — filtering is working
                         </div>
                       </Show>
                       <Show when={match() && !localBlocked()}>
                         <div class="px-4 py-2 bg-emerald-500/5 border-t border-emerald-500/10 text-[10px] text-emerald-400">
-                          Hasil sama — resolver lokal berfungsi normal
+                          Results match — local resolver is working correctly
                         </div>
                       </Show>
                     </div>
@@ -385,9 +385,9 @@ export default function DNSLookupPage() {
         <Show when={history().length > 0}>
           <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
             <div class="px-4 py-2.5 border-b border-slate-700 flex items-center justify-between">
-              <span class="text-xs text-slate-400 font-medium">Riwayat Lookup</span>
+              <span class="text-xs text-slate-400 font-medium">Lookup History</span>
               <button onClick={() => setHistory([])} class="text-[10px] text-slate-600 hover:text-slate-400 transition-colors">
-                Hapus
+                Clear
               </button>
             </div>
             <div class="divide-y divide-slate-700/30 max-h-48 overflow-y-auto">

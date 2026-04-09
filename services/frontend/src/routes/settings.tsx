@@ -1,12 +1,16 @@
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, onMount, Show, For, createMemo } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
 import Layout from "~/components/Layout";
 import { authHeaders, getToken, logout } from "~/lib/auth";
-import { updateAPI, clusterAPI, servicesAPI, type UpdateCheckResult, type ClusterConfig, type ClusterNode, type ServiceInfo } from "~/lib/api";
+import { updateAPI, clusterAPI, servicesAPI, serverConfigAPI, type UpdateCheckResult, type ClusterConfig, type ClusterNode, type ServiceInfo, type ServerConfig } from "~/lib/api";
+import { t } from "~/lib/i18n";
 
-type Tab = "account" | "users" | "cluster" | "system";
+type Tab = "account" | "users" | "server" | "update" | "cluster";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = createSignal<Tab>("account");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = createMemo<Tab>(() => (searchParams.tab as Tab) || "account");
+  const setActiveTab = (tab: Tab) => setSearchParams({ tab });
   const [username, setUsername] = createSignal("");
   const [role, setRole] = createSignal("");
 
@@ -40,6 +44,12 @@ export default function SettingsPage() {
   const [restartAllRunning, setRestartAllRunning] = createSignal(false);
   const [restartOutput, setRestartOutput] = createSignal<string[]>([]);
 
+  // Server config
+  const [srvConfig, setSrvConfig] = createSignal<ServerConfig | null>(null);
+  const [srvMsg, setSrvMsg] = createSignal("");
+  const [srvError, setSrvError] = createSignal(false);
+  const [newSubnet, setNewSubnet] = createSignal("");
+
   // Cluster
   const [clusterConfig, setClusterConfig] = createSignal<ClusterConfig | null>(null);
   const [clusterNodes, setClusterNodes] = createSignal<ClusterNode[]>([]);
@@ -62,10 +72,20 @@ export default function SettingsPage() {
     } catch {}
     loadClusterConfig();
     loadServices();
+    loadServerConfig();
   });
 
   const loadServices = async () => {
     try { setServices(await servicesAPI.list()); } catch {}
+  };
+
+  const loadServerConfig = async () => {
+    try { setSrvConfig(await serverConfigAPI.get()); } catch {}
+  };
+
+  const showSrvMsg = (text: string, error = false) => {
+    setSrvMsg(text); setSrvError(error);
+    setTimeout(() => setSrvMsg(""), 4000);
   };
 
   const handleRestartService = async (name: string) => {
@@ -73,7 +93,6 @@ export default function SettingsPage() {
     try {
       await servicesAPI.restart(name);
       if (name === "backend") {
-        // Backend kills itself, poll until back
         setTimeout(async () => {
           for (let i = 0; i < 20; i++) {
             await new Promise((r) => setTimeout(r, 2000));
@@ -111,7 +130,6 @@ export default function SettingsPage() {
         }
       }
     } catch {}
-    // Poll for backend restart
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
@@ -122,7 +140,6 @@ export default function SettingsPage() {
     setRestartAllRunning(false);
   };
 
-  // --- Cluster handlers ---
   const loadClusterConfig = async () => {
     try {
       const cfg = await clusterAPI.getConfig();
@@ -137,40 +154,30 @@ export default function SettingsPage() {
   };
 
   const handleRoleChange = async (newRole: string) => {
-    setClusterMsg("");
-    setClusterError(false);
+    setClusterMsg(""); setClusterError(false);
     try {
       await clusterAPI.updateConfig({ node_role: newRole });
       setClusterConfig((prev) => prev ? { ...prev, node_role: newRole } : null);
-      setClusterMsg(`Role diubah ke ${newRole}`);
+      setClusterMsg(`Role changed to ${newRole}`);
       if (newRole === "controller") {
         const nodes = await clusterAPI.listNodes();
         setClusterNodes(nodes);
       }
       setTimeout(() => window.location.reload(), 1000);
-    } catch (err: any) {
-      setClusterMsg(err.message);
-      setClusterError(true);
-    }
+    } catch (err: any) { setClusterMsg(err.message); setClusterError(true); }
   };
 
   const handleAddNode = async (e: Event) => {
     e.preventDefault();
-    setClusterMsg("");
-    setClusterError(false);
-    setGeneratedToken("");
+    setClusterMsg(""); setClusterError(false); setGeneratedToken("");
     try {
       const result = await clusterAPI.addNode({ name: newNodeName(), domain: newNodeDomain() });
       setGeneratedToken(result.api_token);
-      setClusterMsg(`Node "${result.name}" ditambahkan. Copy token di bawah.`);
-      setNewNodeName("");
-      setNewNodeDomain("");
+      setClusterMsg(`Node "${result.name}" added. Copy the token below.`);
+      setNewNodeName(""); setNewNodeDomain("");
       const nodes = await clusterAPI.listNodes();
       setClusterNodes(nodes);
-    } catch (err: any) {
-      setClusterMsg(err.message);
-      setClusterError(true);
-    }
+    } catch (err: any) { setClusterMsg(err.message); setClusterError(true); }
   };
 
   const handleDeleteNodeAction = async (id: number) => {
@@ -181,37 +188,22 @@ export default function SettingsPage() {
   };
 
   const handleSaveAgentConfig = async () => {
-    setClusterMsg("");
-    setClusterError(false);
+    setClusterMsg(""); setClusterError(false);
     try {
       await clusterAPI.updateConfig({
         controller_domain: agentControllerDomain(),
         controller_token: agentToken(),
       });
-      setClusterMsg("Konfigurasi agent tersimpan");
-    } catch (err: any) {
-      setClusterMsg(err.message);
-      setClusterError(true);
-    }
+      setClusterMsg("Agent configuration saved");
+    } catch (err: any) { setClusterMsg(err.message); setClusterError(true); }
   };
 
   const handleRemoteNodeUpdate = async (id: number) => {
-    setActiveTab("system");
-    setUpdateRunning(true);
-    setUpdateOutput([]);
-    setUpdateDone(false);
-    setUpdateError("");
+    setActiveTab("update");
+    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateError("");
     try {
-      const res = await fetch(`/api/cluster/nodes/${id}/update`, {
-        method: "POST",
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setUpdateError(data.error || "Failed");
-        setUpdateRunning(false);
-        return;
-      }
+      const res = await fetch(`/api/cluster/nodes/${id}/update`, { method: "POST", headers: authHeaders() });
+      if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); return; }
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -227,19 +219,14 @@ export default function SettingsPage() {
         }
       }
       if (!updateDone()) { setUpdateDone(true); setUpdateRunning(false); }
-    } catch {
-      setUpdateDone(true);
-      setUpdateRunning(false);
-    }
+    } catch { setUpdateDone(true); setUpdateRunning(false); }
   };
 
-  // --- Account handlers ---
   const handleChangePassword = async (e: Event) => {
     e.preventDefault();
-    setPassMsg("");
-    setPassError(false);
-    if (newPass() !== confirmPass()) { setPassMsg("Password baru tidak cocok"); setPassError(true); return; }
-    if (newPass().length < 8) { setPassMsg("Password minimal 8 karakter"); setPassError(true); return; }
+    setPassMsg(""); setPassError(false);
+    if (newPass() !== confirmPass()) { setPassMsg("Passwords do not match"); setPassError(true); return; }
+    if (newPass().length < 8) { setPassMsg("Password must be at least 8 characters"); setPassError(true); return; }
     setPassLoading(true);
     try {
       const res = await fetch("/api/auth/change-password", {
@@ -248,17 +235,16 @@ export default function SettingsPage() {
         body: JSON.stringify({ old_password: oldPass(), new_password: newPass() }),
       });
       const data = await res.json();
-      if (!res.ok) { setPassMsg(data.error || "Gagal ganti password"); setPassError(true); }
-      else { setPassMsg("Password berhasil diganti!"); setPassError(false); setOldPass(""); setNewPass(""); setConfirmPass(""); setTimeout(() => logout(), 2000); }
+      if (!res.ok) { setPassMsg(data.error || "Failed to change password"); setPassError(true); }
+      else { setPassMsg("Password changed! Logging out..."); setPassError(false); setOldPass(""); setNewPass(""); setConfirmPass(""); setTimeout(() => logout(), 2000); }
     } catch (err: any) { setPassMsg(err.message); setPassError(true); }
     finally { setPassLoading(false); }
   };
 
   const handleAddUser = async (e: Event) => {
     e.preventDefault();
-    setUserMsg("");
-    setUserError(false);
-    if (newUserPass().length < 8) { setUserMsg("Password minimal 8 karakter"); setUserError(true); return; }
+    setUserMsg(""); setUserError(false);
+    if (newUserPass().length < 8) { setUserMsg("Password must be at least 8 characters"); setUserError(true); return; }
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
@@ -266,16 +252,14 @@ export default function SettingsPage() {
         body: JSON.stringify({ username: newUser(), password: newUserPass(), role: newUserRole() }),
       });
       const data = await res.json();
-      if (!res.ok) { setUserMsg(data.error || "Gagal membuat user"); setUserError(true); }
-      else { setUserMsg(`User "${data.username}" (${data.role}) berhasil dibuat`); setUserError(false); setNewUser(""); setNewUserPass(""); }
+      if (!res.ok) { setUserMsg(data.error || "Failed to create user"); setUserError(true); }
+      else { setUserMsg(`User "${data.username}" (${data.role}) created`); setUserError(false); setNewUser(""); setNewUserPass(""); }
     } catch (err: any) { setUserMsg(err.message); setUserError(true); }
   };
 
-  // --- Update handlers ---
   const checkForUpdates = async () => {
-    setUpdateChecking(true);
-    setUpdateError("");
-    try { const data = await updateAPI.check(); setUpdateInfo(data); }
+    setUpdateChecking(true); setUpdateError("");
+    try { setUpdateInfo(await updateAPI.check()); }
     catch (err: any) { setUpdateError(err.message || "Failed to check"); }
     finally { setUpdateChecking(false); }
   };
@@ -291,10 +275,7 @@ export default function SettingsPage() {
   };
 
   const executeUpdate = async () => {
-    setUpdateRunning(true);
-    setUpdateOutput([]);
-    setUpdateDone(false);
-    setUpdateError("");
+    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateError("");
     try {
       const res = await fetch("/api/admin/update/execute", { method: "POST", headers: authHeaders() });
       if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); return; }
@@ -316,127 +297,82 @@ export default function SettingsPage() {
     } catch { if (!updateDone()) pollHealth(); }
   };
 
-  // --- Shared UI helpers ---
   const inputClass = "w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition";
   const labelClass = "block text-xs font-medium text-slate-500 mb-1";
 
   const Alert = (props: { msg: string; error: boolean }) => (
     <div class={`p-2.5 rounded-lg text-xs ${
-      props.error ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
+      props.error ? "bg-red-500/10 text-red-400 border border-red-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
     }`}>{props.msg}</div>
   );
 
-  const tabs = (): { id: Tab; label: string; icon: string }[] => {
-    const t: { id: Tab; label: string; icon: string }[] = [
-      { id: "account", label: "Akun", icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" },
-    ];
-    if (role() === "admin") {
-      t.push({ id: "users", label: "Users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
-      t.push({ id: "cluster", label: "Cluster", icon: "M5 12a7 7 0 0114 0M12 5a7 7 0 010 14m0-14v14m7-7H5" });
-      t.push({ id: "system", label: "System", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" });
-    }
-    return t;
-  };
+  const SectionCard = (props: { title: string; description?: string; children: any; class?: string }) => (
+    <div class={`bg-slate-800 rounded-xl border border-slate-700 ${props.class || ""}`}>
+      <div class="px-5 py-4 border-b border-slate-700/50">
+        <h3 class="text-sm font-semibold text-white">{props.title}</h3>
+        <Show when={props.description}>
+          <p class="text-[11px] text-slate-500 mt-0.5">{props.description}</p>
+        </Show>
+      </div>
+      <div class="p-5">{props.children}</div>
+    </div>
+  );
 
   return (
     <Layout>
-      <div class="max-w-3xl">
-        {/* Header with user info inline */}
-        <div class="flex items-center justify-between mb-5">
-          <div>
-            <h1 class="text-xl font-bold text-white">Settings</h1>
-            <p class="text-xs text-slate-500 mt-0.5">Pengaturan akun dan sistem</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <div class="text-right">
-              <p class="text-sm text-white font-medium">{username()}</p>
-              <p class="text-xs text-slate-500 capitalize">{role()}</p>
-            </div>
-            <div class="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-              {username() ? username()[0].toUpperCase() : "?"}
-            </div>
-          </div>
-        </div>
+      <div class="max-w-3xl space-y-4">
 
-        {/* Tabs */}
-        <div class="flex gap-1 mb-4 bg-slate-800/50 rounded-lg p-1">
-          <For each={tabs()}>
-            {(tab) => (
-              <button
-                onClick={() => setActiveTab(tab.id)}
-                class={`flex items-center gap-2 px-3.5 py-2 rounded-md text-xs font-medium transition-all ${
-                  activeTab() === tab.id
-                    ? "bg-slate-700 text-white shadow-sm"
-                    : "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
-                }`}
-              >
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon} />
-                </svg>
-                {tab.label}
-              </button>
-            )}
-          </For>
-        </div>
-
-        {/* Tab Content */}
-        <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-
-          {/* === ACCOUNT TAB === */}
+          {/* ===================== ACCOUNT ===================== */}
           <Show when={activeTab() === "account"}>
-            <div class="p-5 space-y-5">
-              {/* Change Password */}
-              <div>
-                <h3 class="text-sm font-medium text-white mb-3">Ganti Password</h3>
-                {passMsg() && <div class="mb-3"><Alert msg={passMsg()} error={passError()} /></div>}
-                <form onSubmit={handleChangePassword} class="space-y-3">
-                  <div class="grid grid-cols-3 gap-3">
-                    <div>
-                      <label class={labelClass}>Password Lama</label>
-                      <input type="password" required class={inputClass} value={oldPass()} onInput={(e) => setOldPass(e.target.value)} />
-                    </div>
-                    <div>
-                      <label class={labelClass}>Password Baru</label>
-                      <input type="password" required class={inputClass} placeholder="Min. 8 karakter" value={newPass()} onInput={(e) => setNewPass(e.target.value)} />
-                    </div>
-                    <div>
-                      <label class={labelClass}>Konfirmasi</label>
-                      <input type="password" required class={inputClass} value={confirmPass()} onInput={(e) => setConfirmPass(e.target.value)} />
-                    </div>
-                  </div>
-                  <button type="submit" disabled={passLoading()} class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
-                    {passLoading() ? "Menyimpan..." : "Ganti Password"}
-                  </button>
-                </form>
-              </div>
-
-              {/* Logout */}
-              <div class="pt-4 border-t border-slate-700/50 flex items-center justify-between">
+            <SectionCard title={t("settings.change_password")} description={t("settings.change_password_desc")}>
+              {passMsg() && <div class="mb-4"><Alert msg={passMsg()} error={passError()} /></div>}
+              <form onSubmit={handleChangePassword} class="space-y-4">
                 <div>
-                  <p class="text-sm text-slate-300">Keluar dari dashboard</p>
-                  <p class="text-xs text-slate-500">Session akan berakhir</p>
+                  <label class={labelClass}>{t("settings.current_password")}</label>
+                  <input type="password" required class={inputClass} value={oldPass()} onInput={(e) => setOldPass(e.target.value)} />
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class={labelClass}>{t("settings.new_password")}</label>
+                    <input type="password" required class={inputClass} placeholder={t("settings.min_8_chars")} value={newPass()} onInput={(e) => setNewPass(e.target.value)} />
+                  </div>
+                  <div>
+                    <label class={labelClass}>{t("settings.confirm_password")}</label>
+                    <input type="password" required class={inputClass} value={confirmPass()} onInput={(e) => setConfirmPass(e.target.value)} />
+                  </div>
+                </div>
+                <button type="submit" disabled={passLoading()} class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
+                  {passLoading() ? t("settings.saving") : t("settings.change_password")}
+                </button>
+              </form>
+            </SectionCard>
+
+            <SectionCard title={t("settings.session")}>
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-slate-300">{t("settings.sign_out")}</p>
+                  <p class="text-[10px] text-slate-500">{t("settings.session_end")}</p>
                 </div>
                 <button onClick={() => logout()} class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium rounded-lg border border-red-500/20 transition-colors">
-                  Logout
+                  {t("settings.logout")}
                 </button>
               </div>
-            </div>
+            </SectionCard>
           </Show>
 
-          {/* === USERS TAB === */}
+          {/* ===================== USERS ===================== */}
           <Show when={activeTab() === "users"}>
-            <div class="p-5">
-              <h3 class="text-sm font-medium text-white mb-3">Tambah User Baru</h3>
-              {userMsg() && <div class="mb-3"><Alert msg={userMsg()} error={userError()} /></div>}
-              <form onSubmit={handleAddUser} class="space-y-3">
-                <div class="grid grid-cols-3 gap-3">
+            <SectionCard title={t("settings.add_user")} description={t("settings.add_user_desc")}>
+              {userMsg() && <div class="mb-4"><Alert msg={userMsg()} error={userError()} /></div>}
+              <form onSubmit={handleAddUser} class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label class={labelClass}>Username</label>
                     <input type="text" required class={inputClass} value={newUser()} onInput={(e) => setNewUser(e.target.value)} />
                   </div>
                   <div>
                     <label class={labelClass}>Password</label>
-                    <input type="password" required class={inputClass} placeholder="Min. 8 karakter" value={newUserPass()} onInput={(e) => setNewUserPass(e.target.value)} />
+                    <input type="password" required class={inputClass} placeholder="Min. 8 characters" value={newUserPass()} onInput={(e) => setNewUserPass(e.target.value)} />
                   </div>
                   <div>
                     <label class={labelClass}>Role</label>
@@ -447,293 +383,374 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors">
-                  Tambah User
+                  {t("settings.create_user")}
                 </button>
               </form>
-            </div>
+            </SectionCard>
           </Show>
 
-          {/* === CLUSTER TAB === */}
-          <Show when={activeTab() === "cluster"}>
-            <div class="p-5 space-y-4">
-              {clusterMsg() && <Alert msg={clusterMsg()} error={clusterError()} />}
+          {/* ===================== SERVER ===================== */}
+          <Show when={activeTab() === "server"}>
+            {srvMsg() && <Alert msg={srvMsg()} error={srvError()} />}
 
-              {/* Role selector */}
-              <div>
-                <label class={labelClass}>Node Role</label>
-                <div class="flex gap-1.5 mt-1">
-                  {(["standalone", "controller", "agent"] as const).map((r) => (
-                    <button
-                      onClick={() => handleRoleChange(r)}
-                      class={`flex-1 px-3 py-2.5 rounded-lg text-xs font-medium transition-all border ${
-                        clusterConfig()?.node_role === r
-                          ? r === "controller" ? "bg-blue-600/20 text-blue-400 border-blue-500/30"
-                          : r === "agent" ? "bg-purple-600/20 text-purple-400 border-purple-500/30"
-                          : "bg-slate-600/20 text-slate-300 border-slate-500/30"
-                          : "bg-slate-900/30 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-400"
-                      }`}
-                    >
-                      <div class="font-semibold">{r === "standalone" ? "Standalone" : r === "controller" ? "Controller" : "Agent"}</div>
-                      <div class="text-[10px] mt-0.5 opacity-70">
-                        {r === "standalone" ? "Single server" : r === "controller" ? "Pusat monitoring" : "Node terpantau"}
+            <SectionCard title={t("settings.timezone")} description={t("settings.timezone_desc")}>
+              <select
+                value={srvConfig()?.timezone || "Asia/Jakarta"}
+                onChange={async (e) => {
+                  const tz = e.currentTarget.value;
+                  try {
+                    await serverConfigAPI.update({ timezone: tz });
+                    setSrvConfig((prev) => prev ? { ...prev, timezone: tz } : prev);
+                    showSrvMsg(`Timezone set to ${tz}`);
+                  } catch (err: any) { showSrvMsg(err.message, true); }
+                }}
+                class="bg-slate-900 text-white text-xs rounded-lg px-3 py-2 border border-slate-600 w-full max-w-sm"
+              >
+                <option value="Asia/Jakarta">Asia/Jakarta (WIB, UTC+7)</option>
+                <option value="Asia/Makassar">Asia/Makassar (WITA, UTC+8)</option>
+                <option value="Asia/Jayapura">Asia/Jayapura (WIT, UTC+9)</option>
+                <option value="Asia/Singapore">Asia/Singapore (SGT, UTC+8)</option>
+                <option value="Asia/Tokyo">Asia/Tokyo (JST, UTC+9)</option>
+                <option value="Asia/Kolkata">Asia/Kolkata (IST, UTC+5:30)</option>
+                <option value="Asia/Shanghai">Asia/Shanghai (CST, UTC+8)</option>
+                <option value="Asia/Dubai">Asia/Dubai (GST, UTC+4)</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="Europe/Berlin">Europe/Berlin (CET/CEST)</option>
+                <option value="America/New_York">America/New_York (EST/EDT)</option>
+                <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+                <option value="America/Denver">America/Denver (MST/MDT)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+                <option value="Pacific/Auckland">Pacific/Auckland (NZST, UTC+12)</option>
+                <option value="Australia/Sydney">Australia/Sydney (AEST, UTC+10)</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </SectionCard>
+
+            <SectionCard title={t("settings.allowed_subnets")} description={t("settings.allowed_subnets_desc")}>
+              <div class="space-y-2 mb-4">
+                <For each={srvConfig()?.allowed_subnets || []} fallback={
+                  <p class="text-xs text-slate-500 py-2">{t("settings.no_subnets")}</p>
+                }>
+                  {(subnet, i) => (
+                    <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3.5 py-2.5 group border border-slate-700/50">
+                      <div class="flex items-center gap-2.5">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <span class="text-xs text-white font-mono">{subnet}</span>
                       </div>
-                    </button>
-                  ))}
-                </div>
+                      <button
+                        onClick={async () => {
+                          const current = srvConfig();
+                          if (!current) return;
+                          const updated = current.allowed_subnets.filter((_, idx) => idx !== i());
+                          try {
+                            await serverConfigAPI.update({ allowed_subnets: updated });
+                            setSrvConfig({ ...current, allowed_subnets: updated });
+                            showSrvMsg("Subnet removed, kresd restarted");
+                          } catch (err: any) { showSrvMsg(err.message, true); }
+                        }}
+                        class="px-2 py-1 text-[10px] text-red-400 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500/10"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </For>
               </div>
 
-              {/* Controller: registered agents */}
-              <Show when={clusterConfig()?.node_role === "controller"}>
-                <div class="space-y-3 pt-2 border-t border-slate-700/50">
-                  <div class="flex items-center justify-between">
-                    <h4 class="text-xs font-medium text-slate-400">Registered Agents</h4>
-                    <span class="text-[10px] text-slate-600">{clusterNodes().length} node</span>
-                  </div>
-
-                  <Show when={clusterNodes().length > 0}>
-                    <div class="space-y-1.5">
-                      <For each={clusterNodes()}>
-                        {(node) => (
-                          <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2.5 group">
-                            <div class="flex items-center gap-2.5 min-w-0">
-                              <span class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                node.status === "online" ? "bg-emerald-500" :
-                                node.status === "offline" ? "bg-red-500" : "bg-slate-500"
-                              }`} />
-                              <div class="min-w-0">
-                                <p class="text-xs text-white truncate">{node.name || node.domain}</p>
-                                <p class="text-[10px] text-slate-600 truncate">{node.domain}{node.version ? ` - ${node.version}` : ""}</p>
-                              </div>
-                            </div>
-                            <div class="flex items-center gap-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleRemoteNodeUpdate(node.id)} disabled={updateRunning()}
-                                class="px-2 py-1 text-[10px] bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors">
-                                Update
-                              </button>
-                              <button onClick={() => handleDeleteNodeAction(node.id)}
-                                class="px-2 py-1 text-[10px] bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-colors">
-                                Hapus
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-
-                  <Show when={generatedToken()}>
-                    <div class="p-2.5 bg-amber-500/10 rounded-lg">
-                      <p class="text-[10px] text-amber-400 mb-1.5">API Token (hanya ditampilkan sekali):</p>
-                      <div class="flex items-center gap-2">
-                        <code class="flex-1 bg-slate-950 px-2.5 py-1.5 rounded text-[10px] text-white font-mono break-all select-all">{generatedToken()}</code>
-                        <button onClick={() => navigator.clipboard.writeText(generatedToken())}
-                          class="px-2.5 py-1.5 bg-amber-600 text-white text-[10px] rounded hover:bg-amber-700 transition-colors flex-shrink-0">
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* Add node inline */}
-                  <form onSubmit={handleAddNode} class="flex gap-2 items-end">
-                    <div class="flex-1">
-                      <label class={labelClass}>Nama</label>
-                      <input type="text" required placeholder="DNS SG-2" class={inputClass} value={newNodeName()} onInput={(e) => setNewNodeName(e.target.value)} />
-                    </div>
-                    <div class="flex-1">
-                      <label class={labelClass}>Domain</label>
-                      <input type="text" required placeholder="dns2.example.com" class={inputClass} value={newNodeDomain()} onInput={(e) => setNewNodeDomain(e.target.value)} />
-                    </div>
-                    <button type="submit" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors flex-shrink-0">
-                      + Tambah
-                    </button>
-                  </form>
-                </div>
-              </Show>
-
-              {/* Agent: connection config */}
-              <Show when={clusterConfig()?.node_role === "agent"}>
-                <div class="space-y-3 pt-2 border-t border-slate-700/50">
-                  <h4 class="text-xs font-medium text-slate-400">Koneksi ke Controller</h4>
-                  <div class="grid grid-cols-2 gap-3">
-                    <div>
-                      <label class={labelClass}>Domain Controller</label>
-                      <input type="text" placeholder="dns1.example.com" class={inputClass}
-                        value={agentControllerDomain()} onInput={(e) => setAgentControllerDomain(e.target.value)} />
-                    </div>
-                    <div>
-                      <label class={labelClass}>Cluster Token</label>
-                      <input type="password" placeholder="Paste token dari controller" class={inputClass}
-                        value={agentToken()} onInput={(e) => setAgentToken(e.target.value)} />
-                    </div>
-                  </div>
-                  <button onClick={handleSaveAgentConfig}
-                    class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors">
-                    Simpan
-                  </button>
-                </div>
-              </Show>
-            </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const subnet = newSubnet().trim();
+                  if (!subnet) return;
+                  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/.test(subnet)) {
+                    showSrvMsg("Invalid format. Use CIDR notation (e.g. 10.0.0.0/24)", true);
+                    return;
+                  }
+                  const current = srvConfig();
+                  if (!current) return;
+                  if (current.allowed_subnets.includes(subnet)) {
+                    showSrvMsg("Subnet already exists", true);
+                    return;
+                  }
+                  const updated = [...current.allowed_subnets, subnet];
+                  try {
+                    await serverConfigAPI.update({ allowed_subnets: updated });
+                    setSrvConfig({ ...current, allowed_subnets: updated });
+                    setNewSubnet("");
+                    showSrvMsg("Subnet added, kresd restarted");
+                  } catch (err: any) { showSrvMsg(err.message, true); }
+                }}
+                class="flex gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="e.g. 10.0.0.0/24"
+                  class="flex-1 bg-slate-900 text-white text-xs rounded-lg px-3 py-2 border border-slate-600 placeholder-slate-600 font-mono"
+                  value={newSubnet()}
+                  onInput={(e) => setNewSubnet(e.currentTarget.value)}
+                />
+                <button type="submit"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors flex-shrink-0">
+                  {t("settings.add_subnet")}
+                </button>
+              </form>
+            </SectionCard>
           </Show>
 
-          {/* === SYSTEM TAB === */}
-          <Show when={activeTab() === "system"}>
-            <div class="p-5 space-y-4">
-              {/* Version + check */}
-              <div class="flex items-center justify-between">
-                <div>
-                  <h3 class="text-sm font-medium text-white">System Update</h3>
-                  <p class="text-[10px] text-slate-500 mt-0.5">
-                    <Show when={updateInfo()} fallback="Cek update dari GitHub">
-                      v{updateInfo()!.current_version}
-                      <Show when={updateInfo()!.current_commit}>{" "}({updateInfo()!.current_commit})</Show>
-                    </Show>
-                  </p>
-                </div>
+          {/* ===================== UPDATE & SERVICES ===================== */}
+          <Show when={activeTab() === "update"}>
+            <SectionCard title={t("settings.system_update")} description={
+              updateInfo() ? `v${updateInfo()!.current_version}${updateInfo()!.current_commit ? ` (${updateInfo()!.current_commit})` : ""}` : "Check for updates from GitHub"
+            }>
+              <div class="space-y-3">
                 <div class="flex gap-2">
                   <button onClick={checkForUpdates} disabled={updateChecking() || updateRunning()}
                     class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors">
-                    {updateChecking() ? "Checking..." : "Check Update"}
+                    {updateChecking() ? t("settings.checking") : t("settings.check_updates")}
                   </button>
                   <Show when={updateInfo()?.update_available}>
                     <button onClick={executeUpdate} disabled={updateRunning()}
                       class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
-                      {updateRunning() ? "Updating..." : "Update Now"}
+                      {updateRunning() ? t("settings.updating") : t("settings.update_now")}
                     </button>
                   </Show>
                 </div>
-              </div>
 
-              {/* Status messages */}
-              <Show when={updateError()}>
-                <Alert msg={updateError()} error={true} />
-              </Show>
+                <Show when={updateError()}>
+                  <Alert msg={updateError()} error={true} />
+                </Show>
 
-              <Show when={updateInfo()?.update_available}>
-                <div class="p-2.5 rounded-lg bg-amber-500/10">
-                  <div class="flex items-center gap-2 mb-1.5">
-                    <span class="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
-                    <span class="text-xs font-medium text-amber-400">
-                      {updateInfo()!.commits_behind} update tersedia
-                    </span>
+                <Show when={updateInfo()?.update_available}>
+                  <div class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div class="flex items-center gap-2 mb-2">
+                      <span class="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                      <span class="text-xs font-medium text-amber-400">
+                        {updateInfo()!.commits_behind} {t("settings.updates_available")}
+                      </span>
+                    </div>
+                    <div class="space-y-0.5 ml-3.5">
+                      <For each={updateInfo()!.commit_log.slice(0, 5)}>
+                        {(commit) => <p class="text-[10px] text-slate-400 font-mono truncate">{commit}</p>}
+                      </For>
+                      <Show when={updateInfo()!.commit_log.length > 5}>
+                        <p class="text-[10px] text-slate-600">+{updateInfo()!.commit_log.length - 5} {t("settings.more")}</p>
+                      </Show>
+                    </div>
                   </div>
-                  <div class="space-y-0.5 ml-3.5">
-                    <For each={updateInfo()!.commit_log.slice(0, 5)}>
-                      {(commit) => <p class="text-[10px] text-slate-400 font-mono truncate">{commit}</p>}
-                    </For>
-                    <Show when={updateInfo()!.commit_log.length > 5}>
-                      <p class="text-[10px] text-slate-600">+{updateInfo()!.commit_log.length - 5} lainnya</p>
-                    </Show>
-                  </div>
-                </div>
-              </Show>
+                </Show>
 
-              <Show when={updateInfo() && !updateInfo()!.update_available && !updateDone()}>
-                <Alert msg="System sudah up to date" error={false} />
-              </Show>
+                <Show when={updateInfo() && !updateInfo()!.update_available && !updateDone()}>
+                  <Alert msg={t("settings.up_to_date")} error={false} />
+                </Show>
 
-              <Show when={updateDone()}>
-                <Alert msg="Update berhasil!" error={false} />
-              </Show>
+                <Show when={updateDone()}>
+                  <Alert msg={t("settings.update_complete")} error={false} />
+                </Show>
 
-              {/* Terminal output */}
-              <Show when={updateOutput().length > 0}>
-                <div class="bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50"
-                  ref={(el) => {
-                    const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
-                    observer.observe(el, { childList: true, subtree: true });
-                  }}>
-                  <For each={updateOutput()}>
-                    {(line) => (
-                      <div class={
-                        line.includes("[OK]") ? "text-emerald-400" :
-                        line.includes("[WARN]") ? "text-amber-400" :
-                        line.includes("[ERROR]") ? "text-red-400" :
-                        line.includes("[INFO]") ? "text-blue-400" :
-                        "text-slate-400"
-                      }>{line}</div>
-                    )}
-                  </For>
-                  <Show when={restarting()}>
-                    <div class="text-amber-400 animate-pulse mt-1">Restarting services...</div>
-                  </Show>
-                </div>
-              </Show>
-
-              {/* Services Management */}
-              <div class="pt-4 border-t border-slate-700/50">
-                <div class="flex items-center justify-between mb-3">
-                  <h3 class="text-sm font-medium text-white">Services</h3>
-                  <div class="flex gap-2">
-                    <button onClick={loadServices}
-                      class="px-2.5 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
-                      Refresh
-                    </button>
-                    <button onClick={handleRestartAll} disabled={restartAllRunning()}
-                      class="px-2.5 py-1 text-[10px] bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 rounded transition-colors disabled:opacity-50">
-                      {restartAllRunning() ? "Restarting..." : "Restart All"}
-                    </button>
-                  </div>
-                </div>
-
-                <Show when={restartOutput().length > 0}>
-                  <div class="mb-3 bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-40 overflow-y-auto border border-slate-700/50"
+                <Show when={updateOutput().length > 0}>
+                  <div class="bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50"
                     ref={(el) => {
                       const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
                       observer.observe(el, { childList: true, subtree: true });
                     }}>
-                    <For each={restartOutput()}>
+                    <For each={updateOutput()}>
                       {(line) => (
                         <div class={
                           line.includes("[OK]") ? "text-emerald-400" :
+                          line.includes("[WARN]") ? "text-amber-400" :
                           line.includes("[ERROR]") ? "text-red-400" :
+                          line.includes("[INFO]") ? "text-blue-400" :
                           "text-slate-400"
                         }>{line}</div>
                       )}
                     </For>
-                    <Show when={restartAllRunning()}>
-                      <div class="text-amber-400 animate-pulse mt-1">Restarting...</div>
+                    <Show when={restarting()}>
+                      <div class="text-amber-400 animate-pulse mt-1">Restarting services...</div>
                     </Show>
                   </div>
                 </Show>
+              </div>
+            </SectionCard>
 
-                <div class="grid grid-cols-2 gap-1.5">
-                  <For each={services()}>
-                    {(svc) => (
-                      <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 group">
-                        <div class="flex items-center gap-2">
-                          <span class={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                            svc.status === "running" ? "bg-emerald-500" :
-                            svc.status === "exited" ? "bg-red-500" :
-                            svc.status === "restarting" ? "bg-amber-500" : "bg-slate-500"
-                          }`} />
-                          <span class="text-xs text-white">{svc.name}</span>
-                          <Show when={svc.health}>
-                            <span class={`text-[10px] ${svc.health === "healthy" ? "text-emerald-500" : "text-amber-500"}`}>
-                              ({svc.health})
-                            </span>
-                          </Show>
-                        </div>
-                        <button
-                          onClick={() => handleRestartService(svc.name)}
-                          disabled={restartingService() !== "" || restartAllRunning()}
-                          class="px-2 py-0.5 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-400 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                        >
-                          {restartingService() === svc.name ? "..." : "Restart"}
-                        </button>
-                      </div>
+            <SectionCard title={t("settings.services")} description={t("settings.services_desc")}>
+              <div class="flex gap-2 mb-3">
+                <button onClick={loadServices}
+                  class="px-2.5 py-1.5 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">
+                  Refresh
+                </button>
+                <button onClick={handleRestartAll} disabled={restartAllRunning()}
+                  class="px-2.5 py-1.5 text-[10px] bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 rounded-lg transition-colors disabled:opacity-50">
+                  {restartAllRunning() ? t("settings.restarting") : t("settings.restart_all")}
+                </button>
+              </div>
+
+              <Show when={restartOutput().length > 0}>
+                <div class="mb-3 bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-40 overflow-y-auto border border-slate-700/50"
+                  ref={(el) => {
+                    const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
+                    observer.observe(el, { childList: true, subtree: true });
+                  }}>
+                  <For each={restartOutput()}>
+                    {(line) => (
+                      <div class={
+                        line.includes("[OK]") ? "text-emerald-400" :
+                        line.includes("[ERROR]") ? "text-red-400" :
+                        "text-slate-400"
+                      }>{line}</div>
                     )}
                   </For>
+                  <Show when={restartAllRunning()}>
+                    <div class="text-amber-400 animate-pulse mt-1">Restarting...</div>
+                  </Show>
                 </div>
+              </Show>
 
-                <Show when={services().length === 0}>
-                  <p class="text-xs text-slate-500 text-center py-3">Loading services...</p>
-                </Show>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                <For each={services()}>
+                  {(svc) => (
+                    <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2.5 group border border-slate-700/30">
+                      <div class="flex items-center gap-2">
+                        <span class={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          svc.status === "running" ? "bg-emerald-500" :
+                          svc.status === "exited" ? "bg-red-500" :
+                          svc.status === "restarting" ? "bg-amber-500" : "bg-slate-500"
+                        }`} />
+                        <span class="text-xs text-white">{svc.name}</span>
+                        <Show when={svc.health}>
+                          <span class={`text-[10px] ${svc.health === "healthy" ? "text-emerald-500" : "text-amber-500"}`}>
+                            ({svc.health})
+                          </span>
+                        </Show>
+                      </div>
+                      <button
+                        onClick={() => handleRestartService(svc.name)}
+                        disabled={restartingService() !== "" || restartAllRunning()}
+                        class="px-2 py-0.5 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-400 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                      >
+                        {restartingService() === svc.name ? "..." : "Restart"}
+                      </button>
+                    </div>
+                  )}
+                </For>
               </div>
-            </div>
+
+              <Show when={services().length === 0}>
+                <p class="text-xs text-slate-500 text-center py-3">Loading services...</p>
+              </Show>
+            </SectionCard>
           </Show>
 
-        </div>
+          {/* ===================== CLUSTER ===================== */}
+          <Show when={activeTab() === "cluster"}>
+            <SectionCard title={t("settings.node_role")} description={t("settings.node_role_desc")}>
+              {clusterMsg() && <div class="mb-4"><Alert msg={clusterMsg()} error={clusterError()} /></div>}
+              <div class="grid grid-cols-3 gap-2">
+                {(["standalone", "controller", "agent"] as const).map((r) => (
+                  <button
+                    onClick={() => handleRoleChange(r)}
+                    class={`px-3 py-3 rounded-lg text-xs font-medium transition-all border text-center ${
+                      clusterConfig()?.node_role === r
+                        ? r === "controller" ? "bg-blue-600/20 text-blue-400 border-blue-500/30"
+                        : r === "agent" ? "bg-purple-600/20 text-purple-400 border-purple-500/30"
+                        : "bg-slate-600/20 text-slate-300 border-slate-500/30"
+                        : "bg-slate-900/30 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-400"
+                    }`}
+                  >
+                    <div class="font-semibold">{r === "standalone" ? "Standalone" : r === "controller" ? "Controller" : "Agent"}</div>
+                    <div class="text-[10px] mt-1 opacity-70">
+                      {r === "standalone" ? "Single server" : r === "controller" ? "Central hub" : "Monitored node"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </SectionCard>
+
+            {/* Controller: registered agents */}
+            <Show when={clusterConfig()?.node_role === "controller"}>
+              <SectionCard title="Registered Agents" description={`${clusterNodes().length} node(s) connected`}>
+                <Show when={clusterNodes().length > 0}>
+                  <div class="space-y-1.5 mb-4">
+                    <For each={clusterNodes()}>
+                      {(node) => (
+                        <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3.5 py-2.5 group border border-slate-700/30">
+                          <div class="flex items-center gap-2.5 min-w-0">
+                            <span class={`w-2 h-2 rounded-full flex-shrink-0 ${
+                              node.status === "online" ? "bg-emerald-500" :
+                              node.status === "offline" ? "bg-red-500" : "bg-slate-500"
+                            }`} />
+                            <div class="min-w-0">
+                              <p class="text-xs text-white truncate">{node.name || node.domain}</p>
+                              <p class="text-[10px] text-slate-600 truncate">{node.domain}{node.version ? ` — ${node.version}` : ""}</p>
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleRemoteNodeUpdate(node.id)} disabled={updateRunning()}
+                              class="px-2 py-1 text-[10px] bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors">
+                              Update
+                            </button>
+                            <button onClick={() => handleDeleteNodeAction(node.id)}
+                              class="px-2 py-1 text-[10px] bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-colors">
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+
+                <Show when={generatedToken()}>
+                  <div class="p-3 bg-amber-500/10 rounded-lg border border-amber-500/20 mb-4">
+                    <p class="text-[10px] text-amber-400 mb-1.5 font-medium">API Token (shown only once):</p>
+                    <div class="flex items-center gap-2">
+                      <code class="flex-1 bg-slate-950 px-2.5 py-1.5 rounded text-[10px] text-white font-mono break-all select-all">{generatedToken()}</code>
+                      <button onClick={() => navigator.clipboard.writeText(generatedToken())}
+                        class="px-2.5 py-1.5 bg-amber-600 text-white text-[10px] rounded hover:bg-amber-700 transition-colors flex-shrink-0">
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </Show>
+
+                <form onSubmit={handleAddNode} class="flex gap-2 items-end">
+                  <div class="flex-1">
+                    <label class={labelClass}>Name</label>
+                    <input type="text" required placeholder="DNS SG-2" class={inputClass} value={newNodeName()} onInput={(e) => setNewNodeName(e.target.value)} />
+                  </div>
+                  <div class="flex-1">
+                    <label class={labelClass}>Domain</label>
+                    <input type="text" required placeholder="dns2.example.com" class={inputClass} value={newNodeDomain()} onInput={(e) => setNewNodeDomain(e.target.value)} />
+                  </div>
+                  <button type="submit" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors flex-shrink-0">
+                    + Add
+                  </button>
+                </form>
+              </SectionCard>
+            </Show>
+
+            {/* Agent: connection config */}
+            <Show when={clusterConfig()?.node_role === "agent"}>
+              <SectionCard title="Controller Connection" description="Connect this agent to a controller node">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label class={labelClass}>Controller Domain</label>
+                    <input type="text" placeholder="dns1.example.com" class={inputClass}
+                      value={agentControllerDomain()} onInput={(e) => setAgentControllerDomain(e.target.value)} />
+                  </div>
+                  <div>
+                    <label class={labelClass}>Cluster Token</label>
+                    <input type="password" placeholder="Paste token from controller" class={inputClass}
+                      value={agentToken()} onInput={(e) => setAgentToken(e.target.value)} />
+                  </div>
+                </div>
+                <button onClick={handleSaveAgentConfig}
+                  class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors">
+                  Save
+                </button>
+              </SectionCard>
+            </Show>
+          </Show>
+
       </div>
     </Layout>
   );

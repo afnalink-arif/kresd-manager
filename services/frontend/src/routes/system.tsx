@@ -2,7 +2,7 @@ import { createResource, createSignal, onCleanup, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
 import TimeSeriesChart from "~/components/charts/TimeSeriesChart";
-import { metricsAPI, healthAPI, resolverAPI } from "~/lib/api";
+import { metricsAPI, healthAPI, resolverAPI, dockerCleanupAPI } from "~/lib/api";
 import { extractValue, extractTimeSeries, fmt } from "~/lib/prometheus";
 
 export default function SystemPage() {
@@ -235,6 +235,9 @@ export default function SystemPage() {
           </div>
         </div>
 
+        {/* Docker Cleanup */}
+        <DockerCleanupCard />
+
         {/* Server Info */}
         <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
           <h3 class="text-sm font-medium text-slate-400 mb-4">Server Information</h3>
@@ -277,5 +280,82 @@ export default function SystemPage() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+function DockerCleanupCard() {
+  const [info, setInfo] = createSignal<any>(null);
+  const [loading, setLoading] = createSignal(true);
+  const [cleaning, setCleaning] = createSignal(false);
+  const [result, setResult] = createSignal<string[] | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try { setInfo(await dockerCleanupAPI.getInfo()); } catch {}
+    setLoading(false);
+  };
+
+  // Load on mount
+  load();
+
+  const handleCleanup = async () => {
+    setCleaning(true);
+    setResult(null);
+    try {
+      const res = await dockerCleanupAPI.run();
+      setResult(res.details || ["Cleanup complete"]);
+      load();
+    } catch { setResult(["Failed to run cleanup"]); }
+    setCleaning(false);
+  };
+
+  return (
+    <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-sm font-medium text-slate-400">Docker Cleanup</h3>
+          <p class="text-[10px] text-slate-500 mt-0.5">Remove unused images and build cache</p>
+        </div>
+        <div class="flex gap-2">
+          <button onClick={load}
+            class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition-colors">
+            Refresh
+          </button>
+          <button onClick={handleCleanup} disabled={cleaning()}
+            class="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors">
+            {cleaning() ? "Cleaning..." : "Clean Up"}
+          </button>
+        </div>
+      </div>
+
+      <Show when={!loading() && info()} fallback={<p class="text-xs text-slate-500">Loading...</p>}>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="p-3 bg-slate-700/50 rounded-lg">
+            <p class="text-[10px] text-slate-500">Dangling Images</p>
+            <p class="text-lg font-bold text-white mt-0.5">{info().dangling_images}</p>
+            <p class="text-[10px] text-slate-500">{info().dangling_images_size}</p>
+          </div>
+          <div class="p-3 bg-slate-700/50 rounded-lg">
+            <p class="text-[10px] text-slate-500">Build Cache</p>
+            <p class="text-lg font-bold text-white mt-0.5">{info().build_cache_entries} entry</p>
+            <p class="text-[10px] text-slate-500">{info().build_cache_size} (reclaimable: {info().build_cache_reclaimable})</p>
+          </div>
+          <div class="p-3 bg-slate-700/50 rounded-lg col-span-2">
+            <p class="text-[10px] text-slate-500">Total Reclaimable</p>
+            <p class={`text-lg font-bold mt-0.5 ${info().total_reclaimable !== "0 B" ? "text-amber-400" : "text-emerald-400"}`}>
+              {info().total_reclaimable}
+            </p>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={result()}>
+        <div class="mt-3 p-2.5 bg-slate-900 rounded-lg border border-slate-700/50">
+          <For each={result()!}>
+            {(line) => <p class="text-xs text-emerald-400 font-mono">{line}</p>}
+          </For>
+        </div>
+      </Show>
+    </div>
   );
 }

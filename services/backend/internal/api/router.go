@@ -150,6 +150,14 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Get("/services", srv.handleListServices)
 		r.Post("/services/restart", srv.handleRestartService)
 		r.Post("/services/restart-all", srv.handleRestartAll)
+
+		// Docker cleanup
+		r.Get("/docker/cleanup", srv.handleGetCleanupInfo)
+		r.Post("/docker/cleanup", srv.handleRunCleanup)
+
+		// Server config
+		r.Get("/server/config", srv.handleGetServerConfig)
+		r.Put("/server/config", srv.handleUpdateServerConfig)
 	})
 
 	// Protected API routes (require JWT, with timeout)
@@ -357,6 +365,14 @@ func initPostgres(pool *pgxpool.Pool) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS server_config (
+			id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+			timezone VARCHAR(50) NOT NULL DEFAULT 'Asia/Jakarta',
+			allowed_subnets TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`INSERT INTO server_config (id) VALUES (1) ON CONFLICT DO NOTHING`,
+		`ALTER TABLE server_config ADD COLUMN IF NOT EXISTS allowed_subnets TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS cluster_metrics_cache (
 			node_id INT REFERENCES cluster_nodes(id) ON DELETE CASCADE,
 			metric_type VARCHAR(50) NOT NULL,

@@ -72,7 +72,7 @@ export default function FilteringPage() {
     setBpSaving(true);
     try {
       await blockpageAPI.updateConfig(bpConfig());
-      showMsg("Block page disimpan");
+      showMsg("Block page saved");
     } catch (err: any) { showMsg(err.message, true); }
     setBpSaving(false);
   };
@@ -96,7 +96,7 @@ export default function FilteringPage() {
     try {
       await rpzAPI.updateConfig({ enabled: newEnabled });
       setRpzConfig({ ...current, enabled: newEnabled });
-      showMsg(newEnabled ? "RPZ Komdigi diaktifkan" : "RPZ Komdigi dinonaktifkan");
+      showMsg(newEnabled ? "RPZ Komdigi enabled" : "RPZ Komdigi disabled");
     } catch (err: any) { showMsg(err.message, true); }
   };
 
@@ -137,7 +137,7 @@ export default function FilteringPage() {
     try {
       await filterAPI.add({ domain: newDomain(), category: newCategory() });
       setNewDomain("");
-      showMsg("Domain ditambahkan");
+      showMsg("Domain added");
       loadData();
     } catch (err: any) { showMsg(err.message, true); }
   };
@@ -165,7 +165,7 @@ export default function FilteringPage() {
         domains: importBulk(),
         category: importCategory(),
       });
-      showMsg(`${result.imported} domain diimport`);
+      showMsg(`${result.imported} domains imported`);
       setImportUrl("");
       setImportBulk("");
       setImportMode(false);
@@ -178,7 +178,7 @@ export default function FilteringPage() {
     setApplying(true);
     try {
       const result = await filterAPI.apply();
-      showMsg(`Filter diterapkan: ${result.domains_blocked} domain diblokir`);
+      showMsg(`Filter applied: ${result.domains_blocked} domains blocked`);
     } catch (err: any) { showMsg(err.message, true); }
     setApplying(false);
   };
@@ -211,7 +211,7 @@ export default function FilteringPage() {
         <div class="flex items-center justify-between">
           <div>
             <h1 class="text-xl font-bold text-white">DNS Filtering</h1>
-            <p class="text-xs text-slate-500 mt-0.5">Kelola domain yang diblokir</p>
+            <p class="text-xs text-slate-500 mt-0.5">Manage blocked domains and filtering rules</p>
           </div>
           <button
             onClick={handleApply}
@@ -221,7 +221,7 @@ export default function FilteringPage() {
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
-            {applying() ? "Menerapkan..." : "Terapkan Filter"}
+            {applying() ? "Applying..." : "Apply Filter"}
           </button>
         </div>
 
@@ -240,19 +240,19 @@ export default function FilteringPage() {
           <KPICard
             title="Total Rules"
             value={String(stats()?.total_rules || 0)}
-            subtitle="Semua aturan filter"
+            subtitle="All filter rules"
             color="#3b82f6"
           />
           <KPICard
-            title="Aktif"
+            title="Active"
             value={String(stats()?.enabled_rules || 0)}
-            subtitle="Domain diblokir"
+            subtitle="Blocked domains"
             color="#22c55e"
           />
           <KPICard
-            title="Kategori"
+            title="Categories"
             value={String(stats()?.categories?.length || 0)}
-            subtitle="Jenis filter"
+            subtitle="Filter types"
             color="#a855f7"
           />
           <KPICard
@@ -266,12 +266,12 @@ export default function FilteringPage() {
         {/* Add domain + Import */}
         <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-medium text-white">Tambah Domain</h3>
+            <h3 class="text-sm font-medium text-white">Add Domain</h3>
             <button
               onClick={() => setImportMode(!importMode())}
               class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
-              {importMode() ? "Tutup Import" : "Import List"}
+              {importMode() ? "Close Import" : "Import List"}
             </button>
           </div>
 
@@ -280,7 +280,7 @@ export default function FilteringPage() {
             <div class="flex-1">
               <input
                 type="text"
-                placeholder="contoh: ads.example.com"
+                placeholder="e.g. ads.example.com"
                 class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
                 value={newDomain()}
                 onInput={(e) => setNewDomain(e.target.value)}
@@ -300,7 +300,7 @@ export default function FilteringPage() {
               <option value="social">Social</option>
             </select>
             <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors flex-shrink-0">
-              + Blokir
+              + Block
             </button>
           </form>
 
@@ -335,7 +335,7 @@ export default function FilteringPage() {
                 </div>
               </div>
               <div>
-                <label class="block text-xs text-slate-500 mb-1">Atau paste domain (satu per baris)</label>
+                <label class="block text-xs text-slate-500 mb-1">Or paste domains (one per line)</label>
                 <textarea
                   placeholder={"ads.example.com\ntracker.example.com\n..."}
                   rows={3}
@@ -364,7 +364,7 @@ export default function FilteringPage() {
             </div>
             <input
               type="text"
-              placeholder="Cari domain..."
+              placeholder="Search domains..."
               class="bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition w-48"
               value={search()}
               onInput={(e) => setSearch(e.target.value)}
@@ -374,7 +374,7 @@ export default function FilteringPage() {
           <Show when={!loading()} fallback={<div class="p-8 text-center text-slate-500 text-sm">Loading...</div>}>
             <Show
               when={filteredRules().length > 0}
-              fallback={<div class="p-8 text-center text-slate-500 text-sm">Belum ada domain yang diblokir</div>}
+              fallback={<div class="p-8 text-center text-slate-500 text-sm">No blocked domains yet</div>}
             >
               <div class="max-h-[500px] overflow-y-auto">
                 <For each={filteredRules()}>
@@ -405,7 +405,7 @@ export default function FilteringPage() {
                         onClick={() => handleDelete(rule.id)}
                         class="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 text-xs hover:bg-red-500/10 rounded"
                       >
-                        Hapus
+                        Delete
                       </button>
                     </div>
                   )}
@@ -442,7 +442,7 @@ export default function FilteringPage() {
                 <div>
                   <h3 class="text-sm font-medium text-white">RPZ Trust Positif Komdigi</h3>
                   <p class="text-[10px] text-slate-500 mt-0.5">
-                    Response Policy Zone dari Kementerian Komunikasi dan Digital RI
+                    Response Policy Zone from Indonesia's Ministry of Communication and Digital
                   </p>
                 </div>
                 <button
@@ -455,12 +455,12 @@ export default function FilteringPage() {
 
               <Show when={rpzConfig()?.enabled}>
                 <div class="p-2.5 bg-emerald-500/10 rounded-lg text-xs text-emerald-400 mb-4">
-                  RPZ aktif — domain dari Trust Positif Komdigi akan diblokir
+                  RPZ active — Trust Positif Komdigi blocklist is enforced
                 </div>
               </Show>
               <Show when={!rpzConfig()?.enabled}>
                 <div class="p-2.5 bg-slate-700/50 rounded-lg text-xs text-slate-400 mb-4">
-                  RPZ nonaktif — blocklist Komdigi tidak diterapkan
+                  RPZ disabled — Komdigi blocklist is not applied
                 </div>
               </Show>
 
@@ -484,7 +484,7 @@ export default function FilteringPage() {
                 <div class="flex items-center justify-between">
                   <div>
                     <h4 class="text-xs font-medium text-white">Auto Sync</h4>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Sinkronisasi zone otomatis secara berkala</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Automatically sync zone on a schedule</p>
                   </div>
                   <button
                     onClick={async () => {
@@ -494,7 +494,7 @@ export default function FilteringPage() {
                       try {
                         await rpzAPI.updateConfig({ auto_sync_enabled: newVal } as any);
                         setRpzConfig({ ...current, auto_sync_enabled: newVal });
-                        showMsg(newVal ? "Auto sync diaktifkan" : "Auto sync dinonaktifkan");
+                        showMsg(newVal ? "Auto sync enabled" : "Auto sync disabled");
                       } catch (err: any) { showMsg(err.message, true); }
                     }}
                     class={`relative w-10 h-5 rounded-full transition-colors ${rpzConfig()?.auto_sync_enabled ? "bg-blue-600" : "bg-slate-600"}`}
@@ -505,7 +505,7 @@ export default function FilteringPage() {
                 <Show when={rpzConfig()?.auto_sync_enabled}>
                   <div class="mt-3 flex flex-wrap items-center gap-3">
                     <div class="flex items-center gap-1.5">
-                      <label class="text-[10px] text-slate-400">Setiap:</label>
+                      <label class="text-[10px] text-slate-400">Every:</label>
                       <select
                         value={rpzConfig()?.auto_sync_interval_hours || 24}
                         onChange={async (e) => {
@@ -515,21 +515,21 @@ export default function FilteringPage() {
                           try {
                             await rpzAPI.updateConfig({ auto_sync_interval_hours: hours });
                             setRpzConfig({ ...current, auto_sync_interval_hours: hours });
-                            showMsg(`Interval auto sync: ${hours} jam`);
+                            showMsg(`Auto sync interval: ${hours}h`);
                           } catch (err: any) { showMsg(err.message, true); }
                         }}
                         class="bg-slate-700 text-white text-xs rounded-md px-2 py-1 border border-slate-600"
                       >
-                        <option value={6}>6 jam</option>
-                        <option value={12}>12 jam</option>
-                        <option value={24}>24 jam</option>
-                        <option value={48}>2 hari</option>
-                        <option value={72}>3 hari</option>
-                        <option value={168}>7 hari</option>
+                        <option value={6}>6 hours</option>
+                        <option value={12}>12 hours</option>
+                        <option value={24}>24 hours</option>
+                        <option value={48}>2 days</option>
+                        <option value={72}>3 days</option>
+                        <option value={168}>7 days</option>
                       </select>
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <label class="text-[10px] text-slate-400">Jam sync (WIB):</label>
+                      <label class="text-[10px] text-slate-400">Sync hour (WIB):</label>
                       <select
                         value={rpzConfig()?.auto_sync_hour ?? 2}
                         onChange={async (e) => {
@@ -539,7 +539,7 @@ export default function FilteringPage() {
                           try {
                             await rpzAPI.updateConfig({ auto_sync_hour: hour });
                             setRpzConfig({ ...current, auto_sync_hour: hour });
-                            showMsg(`Jam sync: ${hour.toString().padStart(2, "0")}:00 WIB`);
+                            showMsg(`Sync hour: ${hour.toString().padStart(2, "0")}:00 WIB`);
                           } catch (err: any) { showMsg(err.message, true); }
                         }}
                         class="bg-slate-700 text-white text-xs rounded-md px-2 py-1 border border-slate-600"
@@ -556,15 +556,15 @@ export default function FilteringPage() {
                         const cfg = rpzConfig()!;
                         const h = (cfg.auto_sync_hour ?? 2).toString().padStart(2, "0");
                         const interval = cfg.auto_sync_interval_hours || 24;
-                        let desc = `Sync otomatis jam ${h}:00 WIB`;
-                        if (interval <= 24) desc += `, setiap ${interval} jam`;
-                        else desc += `, setiap ${interval / 24} hari`;
+                        let desc = `Auto sync at ${h}:00 WIB`;
+                        if (interval <= 24) desc += `, every ${interval} hours`;
+                        else desc += `, every ${interval / 24} days`;
                         return desc;
                       })()}
                     </p>
                     <Show when={rpzConfig()?.last_sync}>
                       <p class="text-[10px] text-slate-500 mt-1">
-                        Sync berikutnya: {(() => {
+                        Next sync: {(() => {
                           const cfg = rpzConfig()!;
                           const lastSync = new Date(cfg.last_sync!);
                           const intervalMs = cfg.auto_sync_interval_hours * 3600000;
@@ -591,11 +591,11 @@ export default function FilteringPage() {
             {/* Stats */}
             <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-                <p class="text-[10px] text-slate-500">Domain Diblokir</p>
+                <p class="text-[10px] text-slate-500">Blocked Domains</p>
                 <p class="text-xl font-bold text-white mt-1">{(rpzConfig()?.domain_count || 0).toLocaleString()}</p>
               </div>
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-                <p class="text-[10px] text-slate-500">Ukuran Zone</p>
+                <p class="text-[10px] text-slate-500">Zone Size</p>
                 <p class="text-xl font-bold text-white mt-1">
                   {rpzConfig()?.file_size_bytes ? (rpzConfig()!.file_size_bytes / 1024 / 1024).toFixed(1) + " MB" : "—"}
                 </p>
@@ -607,9 +607,9 @@ export default function FilteringPage() {
                 </p>
               </div>
               <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
-                <p class="text-[10px] text-slate-500">Sync Terakhir</p>
+                <p class="text-[10px] text-slate-500">Last Sync</p>
                 <p class="text-sm font-medium text-white mt-1">
-                  {rpzConfig()?.last_sync ? new Date(rpzConfig()!.last_sync!).toLocaleString("id-ID") : "Belum pernah"}
+                  {rpzConfig()?.last_sync ? new Date(rpzConfig()!.last_sync!).toLocaleString() : "Never"}
                 </p>
                 <Show when={rpzConfig()?.sync_duration_ms}>
                   <p class="text-[10px] text-slate-500 mt-0.5">{(rpzConfig()!.sync_duration_ms / 1000).toFixed(1)}s</p>
@@ -621,8 +621,8 @@ export default function FilteringPage() {
                   rpzConfig()?.last_sync_status === "success" ? "text-emerald-400" :
                   rpzConfig()?.last_sync_status === "error" ? "text-red-400" : "text-slate-400"
                 }`}>
-                  {rpzConfig()?.last_sync_status === "success" ? "Berhasil" :
-                   rpzConfig()?.last_sync_status === "error" ? "Gagal" : "—"}
+                  {rpzConfig()?.last_sync_status === "success" ? "Success" :
+                   rpzConfig()?.last_sync_status === "error" ? "Failed" : "—"}
                 </p>
                 <Show when={rpzConfig()?.last_sync_error}>
                   <p class="text-[10px] text-red-400 mt-1 truncate" title={rpzConfig()!.last_sync_error}>{rpzConfig()!.last_sync_error}</p>
@@ -637,9 +637,9 @@ export default function FilteringPage() {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                 </svg>
                 <div class="text-xs text-slate-400 leading-relaxed">
-                  <span class="text-emerald-400 font-medium">Native RPZ Engine</span> — Zone file dimuat langsung oleh kresd menggunakan
-                  <code class="text-emerald-300 bg-emerald-500/10 px-1 rounded">policy.rpz()</code> dengan
-                  internal trie data structure. ~10x lebih hemat memory dibanding konversi ke local-data records.
+                  <span class="text-emerald-400 font-medium">Native RPZ Engine</span> — Zone file loaded directly by kresd using
+                  <code class="text-emerald-300 bg-emerald-500/10 px-1 rounded">policy.rpz()</code> with
+                  internal trie data structure. ~10x more memory-efficient than local-data record conversion.
                 </div>
               </div>
             </div>
@@ -671,8 +671,8 @@ export default function FilteringPage() {
             {/* Info */}
             <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 space-y-2">
               <p class="text-xs text-slate-500">
-                RPZ Trust Positif menggunakan <strong class="text-slate-400">DNS zone transfer (AXFR)</strong> dari server Komdigi.
-                IP server ini harus terdaftar terlebih dahulu.
+                RPZ Trust Positif uses <strong class="text-slate-400">DNS zone transfer (AXFR)</strong> from Komdigi servers.
+                Your server IP must be registered first.
               </p>
               <p class="text-xs text-slate-500">
                 Master: <code class="text-slate-400">{rpzConfig()?.master_servers || "139.255.196.202, 182.23.79.202, 103.154.123.130"}</code>
@@ -681,7 +681,7 @@ export default function FilteringPage() {
                 Registrasi: <a href="https://s.komdigi.go.id/FormKoneksiRPZ" target="_blank" class="text-blue-400 hover:underline">s.komdigi.go.id/FormKoneksiRPZ</a>
               </p>
               <p class="text-xs text-amber-500/80">
-                Zone file berukuran ~1.3 GB. Proses sync memakan waktu beberapa menit tergantung koneksi.
+                Zone file is ~1.3 GB. Sync takes several minutes depending on connection speed.
                 Rekomendasi: RAM minimal 16 GB.
               </p>
             </div>
@@ -693,28 +693,28 @@ export default function FilteringPage() {
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* Settings Form */}
             <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 space-y-4">
-              <h3 class="text-sm font-medium text-white mb-3">Kustomisasi Block Page</h3>
+              <h3 class="text-sm font-medium text-white mb-3">Customize Block Page</h3>
 
               <div>
-                <label class="block text-xs text-slate-500 mb-1">Judul</label>
+                <label class="block text-xs text-slate-500 mb-1">Title</label>
                 <input type="text" class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
                   value={bpConfig().title} onInput={(e) => updateBp("title", e.target.value)} />
               </div>
 
               <div>
-                <label class="block text-xs text-slate-500 mb-1">Subjudul</label>
+                <label class="block text-xs text-slate-500 mb-1">Subtitle</label>
                 <textarea rows={2} class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
                   value={bpConfig().subtitle} onInput={(e) => updateBp("subtitle", e.target.value)} />
               </div>
 
               <div>
-                <label class="block text-xs text-slate-500 mb-1">Pesan Tambahan</label>
+                <label class="block text-xs text-slate-500 mb-1">Additional Message</label>
                 <textarea rows={2} class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition"
                   value={bpConfig().message} onInput={(e) => updateBp("message", e.target.value)} />
               </div>
 
               <div>
-                <label class="block text-xs text-slate-500 mb-1">Info Kontak (opsional)</label>
+                <label class="block text-xs text-slate-500 mb-1">Contact Info (optional)</label>
                 <input type="text" placeholder="Email: admin@example.com" class="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition"
                   value={bpConfig().contact} onInput={(e) => updateBp("contact", e.target.value)} />
               </div>
@@ -750,18 +750,18 @@ export default function FilteringPage() {
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-blue-500"
                     checked={bpConfig().show_domain} onChange={(e) => updateBp("show_domain", e.target.checked)} />
-                  <span class="text-xs text-slate-400">Tampilkan domain</span>
+                  <span class="text-xs text-slate-400">Show domain</span>
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-blue-500"
                     checked={bpConfig().show_logo} onChange={(e) => updateBp("show_logo", e.target.checked)} />
-                  <span class="text-xs text-slate-400">Tampilkan ikon</span>
+                  <span class="text-xs text-slate-400">Show icon</span>
                 </label>
               </div>
 
               <button onClick={handleSaveBlockPage} disabled={bpSaving()}
                 class="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
-                {bpSaving() ? "Menyimpan..." : "Simpan Block Page"}
+                {bpSaving() ? "Saving..." : "Save Block Page"}
               </button>
             </div>
 
@@ -770,7 +770,7 @@ export default function FilteringPage() {
               <div class="px-4 py-2.5 border-b border-slate-700 flex items-center justify-between">
                 <span class="text-xs text-slate-400">Preview</span>
                 <a href="/blockpage" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                  Buka di tab baru
+                  Open in new tab
                 </a>
               </div>
               <div class="aspect-[4/3] relative overflow-hidden" style={`background:${bpConfig().bg_color}`}>
@@ -807,8 +807,8 @@ export default function FilteringPage() {
         <Show when={activeTab() === "rules"}>
           <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
             <p class="text-xs text-slate-500">
-              Setelah menambah/menghapus domain, klik <strong class="text-emerald-400">Terapkan Filter</strong> untuk
-              mengupdate konfigurasi DNS resolver. Domain yang diblokir akan diarahkan ke halaman block page.
+              After adding/removing domains, click <strong class="text-emerald-400">Apply Filter</strong> to
+              update the DNS resolver configuration. Blocked domains will be redirected to the block page.
             </p>
           </div>
         </Show>

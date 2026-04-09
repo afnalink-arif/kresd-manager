@@ -12,17 +12,17 @@ interface KPICardProps {
 
 const KPICard: Component<KPICardProps> = (props) => {
   return (
-    <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 hover:border-slate-600 transition-colors">
+    <div class="bg-[var(--color-bg-card)] rounded-xl p-5 border border-[var(--color-border)] hover:border-[var(--color-border)]/80 transition-colors">
       <div class="flex items-start justify-between">
         <div>
-          <p class="text-sm text-slate-400 mb-1">{props.title}</p>
+          <p class="text-xs text-[var(--color-text-muted)] mb-1">{props.title}</p>
           <p class="text-2xl font-bold text-white">{props.value}</p>
           {props.subtitle && (
-            <p class="text-xs text-slate-500 mt-1">{props.subtitle}</p>
+            <p class="text-[11px] text-[var(--color-text-faint)] mt-1">{props.subtitle}</p>
           )}
         </div>
         <div class="flex flex-col items-end gap-2">
-          {props.icon && <div class="text-slate-500">{props.icon}</div>}
+          {props.icon && <div class="text-[var(--color-text-faint)]">{props.icon}</div>}
           {props.sparklineData && (
             <Sparkline data={props.sparklineData} color={props.color || "#3b82f6"} />
           )}

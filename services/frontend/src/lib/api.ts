@@ -85,6 +85,32 @@ export const versionAPI = {
   get: () => fetchAPI<{ version: string }>("/api/version"),
 };
 
+// Docker Cleanup API
+export const dockerCleanupAPI = {
+  getInfo: () => fetchAPI<any>("/api/admin/docker/cleanup"),
+  run: () =>
+    fetch("/api/admin/docker/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+};
+
+// Server Config API
+export const serverConfigAPI = {
+  get: () => fetchAPI<ServerConfig>("/api/admin/server/config"),
+  update: (data: Partial<ServerConfig>) =>
+    fetch("/api/admin/server/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(data),
+    }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; }),
+};
+
+export interface ServerConfig {
+  timezone: string;
+  allowed_subnets: string[];
+}
+
 // Admin Update API
 export const updateAPI = {
   check: () => fetchAPI<UpdateCheckResult>("/api/admin/update/check"),

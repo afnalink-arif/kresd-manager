@@ -388,15 +388,22 @@ func (s *Server) regenerateKresdConfig(includeRPZ bool) {
 	// We can use auto workers safely now.
 	workers := "auto"
 
-	// Build subnet views
+	// Build subnet views from DB (with .env fallback)
 	var subnetViews strings.Builder
-	if subnets := envVars["ALLOWED_SUBNETS"]; subnets != "" {
-		for _, subnet := range strings.Split(subnets, ",") {
-			subnet = strings.TrimSpace(subnet)
-			if subnet != "" {
-				subnetViews.WriteString(fmt.Sprintf("  - subnets: ['%s']\n    answer: allow\n", subnet))
+	subnets := s.getAllowedSubnets()
+	if len(subnets) == 0 {
+		// Fallback to .env if DB is empty
+		if envSubnets := envVars["ALLOWED_SUBNETS"]; envSubnets != "" {
+			for _, sub := range strings.Split(envSubnets, ",") {
+				sub = strings.TrimSpace(sub)
+				if sub != "" {
+					subnets = append(subnets, sub)
+				}
 			}
 		}
+	}
+	for _, subnet := range subnets {
+		subnetViews.WriteString(fmt.Sprintf("  - subnets: ['%s']\n    answer: allow\n", subnet))
 	}
 
 	// Build local-data section with custom filter rules + RPZ
@@ -654,13 +661,10 @@ func countRPZDomains(path, zoneName string) int {
 	return count
 }
 
-// WIB timezone (UTC+7)
-var wib = time.FixedZone("WIB", 7*60*60)
-
 // runRPZAutoSync is a background goroutine that periodically syncs RPZ if auto-sync is enabled.
 // Checks every minute. Sync triggers when:
 // 1. auto_sync_enabled is true
-// 2. Current WIB hour matches auto_sync_hour
+// 2. Current hour (in server timezone) matches auto_sync_hour
 // 3. Enough time has passed since last sync (interval_hours)
 func (s *Server) runRPZAutoSync(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
@@ -684,13 +688,18 @@ func (s *Server) runRPZAutoSync(ctx context.Context) {
 				continue
 			}
 
-			// Check if current WIB hour matches preferred hour
-			nowWIB := time.Now().In(wib)
-			if nowWIB.Hour() != cfg.AutoSyncHour {
+			// Check if current hour (in server timezone) matches preferred hour
+			tz := s.getServerTimezone()
+			loc, err := time.LoadLocation(tz)
+			if err != nil {
+				loc = time.FixedZone("WIB", 7*60*60)
+			}
+			nowLocal := time.Now().In(loc)
+			if nowLocal.Hour() != cfg.AutoSyncHour {
 				continue
 			}
 
-			log.Printf("RPZ auto-sync triggered (jam %02d:00 WIB, interval: %dh)", cfg.AutoSyncHour, cfg.AutoSyncIntervalHrs)
+			log.Printf("RPZ auto-sync triggered (%02d:00 %s, interval: %dh)", cfg.AutoSyncHour, tz, cfg.AutoSyncIntervalHrs)
 			s.doRPZSyncBackground()
 		}
 	}
