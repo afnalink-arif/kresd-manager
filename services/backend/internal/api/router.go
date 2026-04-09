@@ -221,6 +221,8 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 		r.Get("/update/check", srv.handleUpdateCheck)
 		r.Get("/update/status", srv.handleUpdateStatus)
 		r.Post("/pair", srv.handleClusterPair)
+		r.Get("/docker/cleanup", srv.handleGetCleanupInfo)
+		r.Post("/docker/cleanup", srv.handleRunCleanup)
 	})
 
 	// Cluster controller API (JWT + admin auth)
@@ -241,6 +243,8 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 			r.Get("/nodes/{id}/metrics", srv.handleNodeMetrics)
 			r.Post("/nodes/{id}/update", srv.handlePushNodeUpdate)
 			r.Post("/nodes/update-all", srv.handlePushUpdateAll)
+			r.Get("/nodes/{id}/cleanup", srv.handleProxyNodeCleanupInfo)
+			r.Post("/nodes/{id}/cleanup", srv.handleProxyNodeCleanup)
 			r.Get("/overview", srv.handleClusterOverview)
 		})
 	})

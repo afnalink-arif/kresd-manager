@@ -310,15 +310,16 @@ func (s *Server) handleNodeMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClusterOverview(w http.ResponseWriter, r *http.Request) {
 	type NodeOverview struct {
-		ID         int              `json:"id"`
-		Name       string           `json:"name"`
-		Domain     string           `json:"domain"`
-		Status     string           `json:"status"`
-		Version    string           `json:"version"`
-		IsLocal    bool             `json:"is_local"`
-		LastSeenAt *time.Time       `json:"last_seen_at"`
-		LastError  string           `json:"last_error"`
-		Metrics    *json.RawMessage `json:"metrics"`
+		ID            int              `json:"id"`
+		Name          string           `json:"name"`
+		Domain        string           `json:"domain"`
+		Status        string           `json:"status"`
+		Version       string           `json:"version"`
+		IsLocal       bool             `json:"is_local"`
+		LastSeenAt    *time.Time       `json:"last_seen_at"`
+		LastError     string           `json:"last_error"`
+		Metrics       *json.RawMessage `json:"metrics"`
+		SystemMetrics *json.RawMessage `json:"system_metrics"`
 	}
 
 	nodes := []NodeOverview{}
@@ -347,6 +348,10 @@ func (s *Server) handleClusterOverview(w http.ResponseWriter, r *http.Request) {
 	if localMetrics != nil {
 		localNode.Metrics = localMetrics
 	}
+	localSystem := s.getLocalSystemMetrics(r.Context())
+	if localSystem != nil {
+		localNode.SystemMetrics = localSystem
+	}
 	nodes = append(nodes, localNode)
 
 	// Remote agent nodes
@@ -365,6 +370,13 @@ func (s *Server) handleClusterOverview(w http.ResponseWriter, r *http.Request) {
 			).Scan(&data)
 			if err == nil {
 				n.Metrics = &data
+			}
+			var sysData json.RawMessage
+			err = s.pg.QueryRow(r.Context(),
+				"SELECT data FROM cluster_metrics_cache WHERE node_id = $1 AND metric_type = 'system'", n.ID,
+			).Scan(&sysData)
+			if err == nil {
+				n.SystemMetrics = &sysData
 			}
 			nodes = append(nodes, n)
 		}
@@ -485,6 +497,69 @@ func (s *Server) handlePushUpdateAll(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "event: done\ndata: All nodes updated\n\n")
 	flusher.Flush()
+}
+
+// --- Proxy: node cleanup ---
+
+func (s *Server) handleProxyNodeCleanupInfo(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var domain, token string
+	err := s.pg.QueryRow(r.Context(), "SELECT domain, api_token FROM cluster_nodes WHERE id = $1", id).Scan(&domain, &token)
+	if err != nil {
+		http.Error(w, `{"error":"node not found"}`, http.StatusNotFound)
+		return
+	}
+	data, err := s.fetchAgentEndpoint(domain, token, "/docker/cleanup")
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func (s *Server) handleProxyNodeCleanup(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var domain, token string
+	err := s.pg.QueryRow(r.Context(), "SELECT domain, api_token FROM cluster_nodes WHERE id = $1", id).Scan(&domain, &token)
+	if err != nil {
+		http.Error(w, `{"error":"node not found"}`, http.StatusNotFound)
+		return
+	}
+	resp, err := s.doAgentRequest("POST", domain, token, "/docker/cleanup")
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+// getLocalSystemMetrics fetches CPU/memory/disk metrics from Prometheus for the local node.
+func (s *Server) getLocalSystemMetrics(ctx context.Context) *json.RawMessage {
+	queries := map[string]string{
+		"cpu_usage":      `100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`,
+		"memory_used":    `node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes`,
+		"memory_total":   `node_memory_MemTotal_bytes`,
+		"disk_usage_pct": `100 - ((node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100)`,
+	}
+
+	results := map[string]json.RawMessage{}
+	for name, query := range queries {
+		data, err := s.promInstantQuery(query)
+		if err != nil {
+			continue
+		}
+		results[name] = data
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(results)
+	msg := json.RawMessage(raw)
+	return &msg
 }
 
 // --- Background poller (controller) ---

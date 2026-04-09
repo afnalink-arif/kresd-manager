@@ -1,7 +1,7 @@
 import { createResource, createSignal, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
-import { clusterAPI } from "~/lib/api";
+import { clusterAPI, dockerCleanupAPI } from "~/lib/api";
 import { authHeaders } from "~/lib/auth";
 import { extractValue, fmt } from "~/lib/prometheus";
 
@@ -9,6 +9,8 @@ export default function ClusterPage() {
   const [overview, { refetch }] = createResource(() => clusterAPI.getOverview());
   const [updatingNodes, setUpdatingNodes] = createSignal<Set<number>>(new Set());
   const [updateOutputs, setUpdateOutputs] = createSignal<Record<number, string[]>>({});
+  const [cleaningNodes, setCleaningNodes] = createSignal<Set<number>>(new Set());
+  const [cleanResults, setCleanResults] = createSignal<Record<number, string[]>>({});
 
   const onlineCount = () => {
     const o = overview();
@@ -110,6 +112,29 @@ export default function ClusterPage() {
     refetch();
   };
 
+  const handleNodeCleanup = async (nodeId: number, isLocal: boolean) => {
+    setCleaningNodes((prev) => new Set([...prev, nodeId]));
+    setCleanResults((prev) => ({ ...prev, [nodeId]: [] }));
+    try {
+      const url = isLocal
+        ? "/api/admin/docker/cleanup"
+        : `/api/cluster/nodes/${nodeId}/cleanup`;
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() } });
+      const data = await res.json();
+      setCleanResults((prev) => ({ ...prev, [nodeId]: data.details || ["Cleanup complete"] }));
+    } catch {
+      setCleanResults((prev) => ({ ...prev, [nodeId]: ["Failed to run cleanup"] }));
+    }
+    setCleaningNodes((prev) => { const s = new Set(prev); s.delete(nodeId); return s; });
+  };
+
+  const fmtBytes = (bytes: number | null) => {
+    if (bytes === null || bytes === undefined) return "--";
+    if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + " GB";
+    if (bytes > 1e6) return (bytes / 1e6).toFixed(1) + " MB";
+    return (bytes / 1e3).toFixed(0) + " KB";
+  };
+
   // Auto-refresh every 15s, but pause during updates
   setInterval(() => {
     if (updatingNodes().size === 0) refetch();
@@ -171,7 +196,17 @@ export default function ClusterPage() {
                 const nodeCacheHit = () => node.metrics ? extractValue(node.metrics.cache_hit_ratio) : null;
                 const nodeLatency = () => node.metrics ? extractValue(node.metrics.avg_latency_ms) : null;
                 const isUpdating = () => updatingNodes().has(node.id);
+                const isCleaning = () => cleaningNodes().has(node.id);
                 const nodeOutput = () => updateOutputs()[node.id] || [];
+                const nodeCleanResult = () => cleanResults()[node.id] || [];
+
+                // System metrics
+                const cpuPct = () => node.system_metrics ? extractValue(node.system_metrics.cpu_usage) : null;
+                const memUsed = () => node.system_metrics ? extractValue(node.system_metrics.memory_used) : null;
+                const memTotal = () => node.system_metrics ? extractValue(node.system_metrics.memory_total) : null;
+                const memPct = () => { const u = memUsed(), t = memTotal(); return u && t ? (u / t) * 100 : null; };
+                const diskPct = () => node.system_metrics ? extractValue(node.system_metrics.disk_usage_pct) : null;
+                const barColor = (pct: number) => pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-emerald-500";
 
                 return (
                   <div class={`bg-slate-800 rounded-xl p-5 border transition-colors ${
@@ -227,15 +262,48 @@ export default function ClusterPage() {
                       </div>
                     </div>
 
+                    {/* Resource Usage */}
+                    <div class="mt-3 pt-3 border-t border-slate-700 space-y-2">
+                      <p class="text-[10px] text-slate-500 font-medium">Resource Usage</p>
+                      <div class="space-y-1.5">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[9px] text-slate-500 w-8">CPU</span>
+                          <div class="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                            <div class={`h-full rounded-full transition-all ${cpuPct() ? barColor(cpuPct()!) : "bg-slate-600"}`}
+                              style={{ width: `${cpuPct() || 0}%` }} />
+                          </div>
+                          <span class="text-[9px] text-slate-400 w-10 text-right">{cpuPct() !== null ? fmt(cpuPct()!, 0) + "%" : "--"}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-[9px] text-slate-500 w-8">MEM</span>
+                          <div class="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                            <div class={`h-full rounded-full transition-all ${memPct() ? barColor(memPct()!) : "bg-slate-600"}`}
+                              style={{ width: `${memPct() || 0}%` }} />
+                          </div>
+                          <span class="text-[9px] text-slate-400 w-10 text-right">{memPct() !== null ? fmt(memPct()!, 0) + "%" : "--"}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-[9px] text-slate-500 w-8">DISK</span>
+                          <div class="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                            <div class={`h-full rounded-full transition-all ${diskPct() ? barColor(diskPct()!) : "bg-slate-600"}`}
+                              style={{ width: `${diskPct() || 0}%` }} />
+                          </div>
+                          <span class="text-[9px] text-slate-400 w-10 text-right">{diskPct() !== null ? fmt(diskPct()!, 0) + "%" : "--"}</span>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Footer: status + actions */}
-                    <div class="mt-3 pt-3 border-t border-slate-700 flex items-center justify-between">
-                      <div class="flex items-center gap-2">
-                        <span class={`text-xs capitalize ${
-                          node.status === "online" ? "text-emerald-400" :
-                          node.status === "degraded" ? "text-amber-400" :
-                          node.status === "offline" ? "text-red-400" : "text-slate-400"
-                        }`}>{node.status}</span>
-                        <span class="text-[10px] text-slate-600">{timeSince(node.last_seen_at)}</span>
+                    <div class="mt-3 pt-3 border-t border-slate-700">
+                      <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                          <span class={`text-xs capitalize ${
+                            node.status === "online" ? "text-emerald-400" :
+                            node.status === "degraded" ? "text-amber-400" :
+                            node.status === "offline" ? "text-red-400" : "text-slate-400"
+                          }`}>{node.status}</span>
+                          <span class="text-[10px] text-slate-600">{timeSince(node.last_seen_at)}</span>
+                        </div>
                       </div>
                       <div class="flex gap-1.5">
                         <button
@@ -252,8 +320,24 @@ export default function ClusterPage() {
                         >
                           {isUpdating() ? "..." : "Rebuild"}
                         </button>
+                        <button
+                          onClick={() => handleNodeCleanup(node.id, node.is_local)}
+                          disabled={isCleaning()}
+                          class="px-2 py-1 text-[10px] bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                        >
+                          {isCleaning() ? "Cleaning..." : "Cleanup"}
+                        </button>
                       </div>
                     </div>
+
+                    {/* Cleanup result */}
+                    <Show when={nodeCleanResult().length > 0}>
+                      <div class="mt-2 p-2 bg-emerald-500/5 rounded border border-emerald-500/10">
+                        <For each={nodeCleanResult()}>
+                          {(line) => <p class="text-[10px] text-emerald-400 font-mono">{line}</p>}
+                        </For>
+                      </div>
+                    </Show>
 
                     <Show when={node.last_error && !isUpdating()}>
                       <div class="mt-2 p-2 bg-red-500/10 rounded text-[10px] text-red-400 truncate" title={node.last_error}>
