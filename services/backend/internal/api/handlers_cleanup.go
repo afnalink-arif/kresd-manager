@@ -8,52 +8,49 @@ import (
 	"strings"
 )
 
+type CleanupCategory struct {
+	Type        string `json:"type"`
+	Count       int    `json:"count"`
+	Size        string `json:"size"`
+	Reclaimable string `json:"reclaimable"`
+}
+
 type CleanupInfo struct {
-	DanglingImages         int    `json:"dangling_images"`
-	DanglingImagesSize     string `json:"dangling_images_size"`
-	BuildCacheSize         string `json:"build_cache_size"`
-	BuildCacheReclaimable  string `json:"build_cache_reclaimable"`
-	BuildCacheEntries      int    `json:"build_cache_entries"`
-	TotalReclaimable       string `json:"total_reclaimable"`
+	Categories       []CleanupCategory `json:"categories"`
+	TotalReclaimable string            `json:"total_reclaimable"`
 }
 
 func (s *Server) handleGetCleanupInfo(w http.ResponseWriter, r *http.Request) {
 	info := CleanupInfo{}
 
-	// Count dangling images
-	out, err := exec.CommandContext(r.Context(), "docker", "images", "--filter", "dangling=true", "--format", "{{.Size}}").Output()
+	out, err := exec.CommandContext(r.Context(), "docker", "system", "df", "--format", "{{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}").Output()
 	if err == nil {
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		if lines[0] != "" {
-			info.DanglingImages = len(lines)
-		}
-		info.DanglingImagesSize = sumDockerSizes(lines)
-	}
-
-	// Build cache info via docker system df
-	out, err = exec.CommandContext(r.Context(), "docker", "system", "df", "--format", "{{.Type}}\t{{.TotalCount}}\t{{.Size}}\t{{.Reclaimable}}").Output()
-	if err == nil {
+		var reclaimableSizes []string
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			fields := strings.Split(line, "\t")
 			if len(fields) < 4 {
 				continue
 			}
-			switch fields[0] {
-			case "Build Cache":
-				info.BuildCacheEntries, _ = strconv.Atoi(fields[1])
-				info.BuildCacheSize = fields[2]
-				info.BuildCacheReclaimable = fields[3]
+			count, _ := strconv.Atoi(fields[1])
+			cat := CleanupCategory{
+				Type:        fields[0],
+				Count:       count,
+				Size:        fields[2],
+				Reclaimable: fields[3],
 			}
+			info.Categories = append(info.Categories, cat)
+			reclaimableSizes = append(reclaimableSizes, fields[3])
 		}
+		info.TotalReclaimable = sumDockerSizes(reclaimableSizes)
 	}
-
-	// Total reclaimable = dangling images + build cache reclaimable only
-	info.TotalReclaimable = sumDockerSizes([]string{info.DanglingImagesSize, info.BuildCacheReclaimable})
 
 	writeJSON(w, info)
 }
 
 func (s *Server) handleRunCleanup(w http.ResponseWriter, r *http.Request) {
+	// Get reclaimable before cleanup
+	beforeInfo := s.getDockerReclaimable(r)
+
 	results := []string{}
 
 	// Prune dangling images
@@ -61,7 +58,7 @@ func (s *Server) handleRunCleanup(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			if strings.HasPrefix(line, "Total reclaimed space:") {
-				results = append(results, "Images: "+strings.TrimPrefix(line, "Total reclaimed space: "))
+				results = append(results, "Images pruned: "+strings.TrimPrefix(line, "Total reclaimed space: "))
 			}
 		}
 	}
@@ -71,15 +68,39 @@ func (s *Server) handleRunCleanup(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			if strings.HasPrefix(line, "Total:") {
-				results = append(results, "Build cache: "+strings.TrimSpace(strings.TrimPrefix(line, "Total:")))
+				results = append(results, "Build cache pruned: "+strings.TrimSpace(strings.TrimPrefix(line, "Total:")))
 			}
 		}
 	}
 
+	// Prune stopped containers
+	out, err = exec.CommandContext(r.Context(), "docker", "container", "prune", "-f").CombinedOutput()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "Total reclaimed space:") {
+				results = append(results, "Containers pruned: "+strings.TrimPrefix(line, "Total reclaimed space: "))
+			}
+		}
+	}
+
+	// Get reclaimable after cleanup
+	afterInfo := s.getDockerReclaimable(r)
+
 	writeJSON(w, map[string]interface{}{
-		"message": "Cleanup complete",
-		"details": results,
+		"message":          "Cleanup complete",
+		"details":          results,
+		"before_reclaimable": beforeInfo,
+		"after_reclaimable":  afterInfo,
 	})
+}
+
+func (s *Server) getDockerReclaimable(r *http.Request) string {
+	out, err := exec.CommandContext(r.Context(), "docker", "system", "df", "--format", "{{.Reclaimable}}").Output()
+	if err != nil {
+		return "0 B"
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return sumDockerSizes(lines)
 }
 
 // sumDockerSizes sums human-readable sizes like "1.2GB", "345MB", "12.5kB"

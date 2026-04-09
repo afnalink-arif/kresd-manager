@@ -1,4 +1,4 @@
-import { createResource, createSignal, Show, For } from "solid-js";
+import { createResource, createSignal, createEffect, on, Show, For } from "solid-js";
 import Layout from "~/components/Layout";
 import KPICard from "~/components/KPICard";
 import { clusterAPI, dockerCleanupAPI } from "~/lib/api";
@@ -169,6 +169,30 @@ export default function ClusterPage() {
     refetch();
   };
 
+  const [cleanupInfo, setCleanupInfo] = createSignal<Record<number, { total_reclaimable: string }>>({});
+
+  // Fetch cleanup info for all nodes on load
+  const fetchCleanupInfo = async (nodeId: number, isLocal: boolean) => {
+    try {
+      const url = isLocal
+        ? "/api/admin/docker/cleanup"
+        : `/api/cluster/nodes/${nodeId}/cleanup`;
+      const res = await fetch(url, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setCleanupInfo((prev) => ({ ...prev, [nodeId]: { total_reclaimable: data.total_reclaimable || "0 B" } }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  // Fetch cleanup info when overview loads/refreshes
+  createEffect(on(() => overview(), (o) => {
+    if (!o) return;
+    for (const node of o.nodes) {
+      fetchCleanupInfo(node.id, node.is_local);
+    }
+  }, { defer: true }));
+
   const handleNodeCleanup = async (nodeId: number, isLocal: boolean) => {
     setCleaningNodes((prev) => new Set([...prev, nodeId]));
     setCleanResults((prev) => ({ ...prev, [nodeId]: [] }));
@@ -178,7 +202,13 @@ export default function ClusterPage() {
         : `/api/cluster/nodes/${nodeId}/cleanup`;
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() } });
       const data = await res.json();
-      setCleanResults((prev) => ({ ...prev, [nodeId]: data.details || ["Cleanup complete"] }));
+      const lines: string[] = [];
+      if (data.before_reclaimable) lines.push(`Before: ${data.before_reclaimable}`);
+      if (data.details?.length) lines.push(...data.details);
+      if (data.after_reclaimable) lines.push(`After: ${data.after_reclaimable}`);
+      setCleanResults((prev) => ({ ...prev, [nodeId]: lines.length > 0 ? lines : ["Cleanup complete"] }));
+      // Refresh cleanup info
+      fetchCleanupInfo(nodeId, isLocal);
     } catch {
       setCleanResults((prev) => ({ ...prev, [nodeId]: ["Failed to run cleanup"] }));
     }
@@ -260,6 +290,7 @@ export default function ClusterPage() {
                 const nodeProgress = () => updateProgress()[node.id];
                 const isErrorLogOpen = () => showErrorLog().has(node.id);
                 const nodeCleanResult = () => cleanResults()[node.id] || [];
+                const nodeReclaimable = () => cleanupInfo()[node.id]?.total_reclaimable;
 
                 // System metrics
                 const cpuPct = () => node.system_metrics ? extractValue(node.system_metrics.cpu_usage) : null;
@@ -380,8 +411,8 @@ export default function ClusterPage() {
                       <div class="flex gap-1.5">
                         <button
                           onClick={() => handleNodeUpdate(node.id, node.is_local)}
-                          disabled={isUpdating()}
-                          class="px-2 py-1 text-[10px] bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                          disabled={isUpdating() || !node.update_info?.update_available}
+                          class="px-2 py-1 text-[10px] bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isUpdating() ? "Updating..." : "Update"}
                         </button>
@@ -397,16 +428,23 @@ export default function ClusterPage() {
                           disabled={isCleaning()}
                           class="px-2 py-1 text-[10px] bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-colors disabled:opacity-50"
                         >
-                          {isCleaning() ? "Cleaning..." : "Cleanup"}
+                          {isCleaning() ? "Cleaning..." : <>Cleanup{nodeReclaimable() && nodeReclaimable() !== "0 B" ? <span class="ml-1 text-red-400/60">({nodeReclaimable()})</span> : ""}</>}
                         </button>
                       </div>
                     </div>
 
                     {/* Cleanup result */}
                     <Show when={nodeCleanResult().length > 0}>
-                      <div class="mt-2 p-2 bg-emerald-500/5 rounded border border-emerald-500/10">
+                      <div class="mt-2 p-2.5 bg-slate-900 rounded-lg border border-slate-700/50 space-y-1.5">
                         <For each={nodeCleanResult()}>
-                          {(line) => <p class="text-[10px] text-emerald-400 font-mono">{line}</p>}
+                          {(line) => (
+                            <p class={`text-[10px] font-mono ${
+                              line.startsWith("Before:") ? "text-slate-400" :
+                              line.startsWith("After:") ? "text-emerald-400 font-medium" :
+                              line.includes("Failed") ? "text-red-400" :
+                              "text-slate-300"
+                            }`}>{line}</p>
+                          )}
                         </For>
                       </div>
                     </Show>
