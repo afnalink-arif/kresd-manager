@@ -121,11 +121,11 @@ const Layout: Component<LayoutProps> = (props) => {
       {/* Sidebar */}
       <aside class="w-[260px] bg-[var(--color-bg-sidebar)] border-r border-[var(--color-border)] flex flex-col flex-shrink-0">
         {/* Brand header */}
-        <div class="px-5 py-5">
+        <div class="px-4 py-4">
           <div class="flex items-center gap-3">
-            <BrandLogo class="w-9 h-9 flex-shrink-0" />
+            <img src="/logo-kdm.png" alt="Knot DNS Manager" class="h-9 object-contain flex-shrink-0" />
             <div>
-              <h1 class="text-[15px] font-bold text-white tracking-tight">Knot DNS</h1>
+              <h1 class="text-[14px] font-bold text-white tracking-tight leading-tight">Knot DNS</h1>
               <p class="text-[10px] text-[var(--color-text-faint)] font-medium tracking-wider uppercase">Manager</p>
             </div>
           </div>
