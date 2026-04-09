@@ -514,6 +514,12 @@ export default function SettingsPage() {
                       {updateRunning() ? t("settings.updating") : t("settings.update_now")}
                     </button>
                   </Show>
+                  <Show when={updateInfo() && !updateInfo()!.update_available}>
+                    <button onClick={executeUpdate} disabled={updateRunning()}
+                      class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors">
+                      {updateRunning() ? t("settings.updating") : t("settings.force_rebuild")}
+                    </button>
+                  </Show>
                 </div>
 
                 <Show when={updateError()}>

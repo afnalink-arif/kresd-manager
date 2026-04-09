@@ -100,6 +100,7 @@ const translations: Record<string, Record<Lang, string>> = {
   "settings.updating": { en: "Updating...", id: "Memperbarui..." },
   "settings.updates_available": { en: "update(s) available", id: "pembaruan tersedia" },
   "settings.more": { en: "more", id: "lainnya" },
+  "settings.force_rebuild": { en: "Force Rebuild", id: "Paksa Rebuild" },
   "settings.up_to_date": { en: "System is up to date", id: "Sistem sudah terbaru" },
   "settings.update_complete": { en: "Update complete!", id: "Pembaruan selesai!" },
   "settings.services": { en: "Services", id: "Layanan" },
