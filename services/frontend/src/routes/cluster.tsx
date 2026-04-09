@@ -7,9 +7,8 @@ import { extractValue, fmt } from "~/lib/prometheus";
 
 export default function ClusterPage() {
   const [overview, { refetch }] = createResource(() => clusterAPI.getOverview());
-  const [updatingNode, setUpdatingNode] = createSignal<number | null>(null);
-  const [updateOutput, setUpdateOutput] = createSignal<string[]>([]);
-  const [updateDone, setUpdateDone] = createSignal(false);
+  const [updatingNodes, setUpdatingNodes] = createSignal<Set<number>>(new Set());
+  const [updateOutputs, setUpdateOutputs] = createSignal<Record<number, string[]>>({});
 
   const onlineCount = () => {
     const o = overview();
@@ -69,19 +68,23 @@ export default function ClusterPage() {
   };
 
   const handleNodeUpdate = async (nodeId: number, isLocal: boolean) => {
-    setUpdatingNode(nodeId);
-    setUpdateOutput([]);
-    setUpdateDone(false);
+    // Mark node as updating
+    setUpdatingNodes((prev) => new Set([...prev, nodeId]));
+    setUpdateOutputs((prev) => ({ ...prev, [nodeId]: [] }));
 
     const url = isLocal
       ? "/api/admin/update/execute"
       : `/api/cluster/nodes/${nodeId}/update`;
 
+    const appendOutput = (nodeId: number, line: string) => {
+      setUpdateOutputs((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] || []), line] }));
+    };
+
     try {
       const res = await fetch(url, { method: "POST", headers: authHeaders() });
       if (!res.ok) {
-        setUpdateOutput(["[ERROR] Failed to start update"]);
-        setUpdatingNode(null);
+        appendOutput(nodeId, "[ERROR] Failed to start update");
+        setUpdatingNodes((prev) => { const s = new Set(prev); s.delete(nodeId); return s; });
         return;
       }
       const reader = res.body!.getReader();
@@ -94,15 +97,16 @@ export default function ClusterPage() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
-          if (line.startsWith("data: ")) setUpdateOutput((prev) => [...prev, line.slice(6)]);
-          else if (line.startsWith("event: done")) { setUpdateDone(true); setUpdatingNode(null); }
+          if (line.startsWith("data: ")) appendOutput(nodeId, line.slice(6));
+          else if (line.startsWith("event: done")) {
+            setUpdatingNodes((prev) => { const s = new Set(prev); s.delete(nodeId); return s; });
+          }
         }
       }
-      if (!updateDone()) { setUpdateDone(true); setUpdatingNode(null); }
     } catch {
-      setUpdateOutput((prev) => [...prev, "[ERROR] Connection failed"]);
-      setUpdatingNode(null);
+      appendOutput(nodeId, "[ERROR] Connection failed");
     }
+    setUpdatingNodes((prev) => { const s = new Set(prev); s.delete(nodeId); return s; });
     refetch();
   };
 
@@ -148,31 +152,6 @@ export default function ClusterPage() {
           />
         </div>
 
-        {/* Update output */}
-        <Show when={updateOutput().length > 0}>
-          <div class="bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50"
-            ref={(el) => {
-              const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
-              observer.observe(el, { childList: true, subtree: true });
-            }}>
-            <For each={updateOutput()}>
-              {(line) => (
-                <div class={
-                  line.includes("[OK]") ? "text-emerald-400" :
-                  line.includes("[WARN]") ? "text-amber-400" :
-                  line.includes("[ERROR]") ? "text-red-400" :
-                  line.includes("[INFO]") ? "text-blue-400" :
-                  line.startsWith("===") ? "text-white font-bold mt-2" :
-                  "text-slate-400"
-                }>{line}</div>
-              )}
-            </For>
-            <Show when={updatingNode() !== null}>
-              <div class="text-amber-400 animate-pulse mt-1">Updating...</div>
-            </Show>
-          </div>
-        </Show>
-
         {/* Node Grid */}
         <Show
           when={overview() && overview()!.nodes.length > 0}
@@ -189,7 +168,8 @@ export default function ClusterPage() {
                 const nodeQps = () => node.metrics ? extractValue(node.metrics.qps) : null;
                 const nodeCacheHit = () => node.metrics ? extractValue(node.metrics.cache_hit_ratio) : null;
                 const nodeLatency = () => node.metrics ? extractValue(node.metrics.avg_latency_ms) : null;
-                const isUpdating = () => updatingNode() === node.id;
+                const isUpdating = () => updatingNodes().has(node.id);
+                const nodeOutput = () => updateOutputs()[node.id] || [];
 
                 return (
                   <div class={`bg-slate-800 rounded-xl p-5 border transition-colors ${
@@ -258,14 +238,14 @@ export default function ClusterPage() {
                       <div class="flex gap-1.5">
                         <button
                           onClick={() => handleNodeUpdate(node.id, node.is_local)}
-                          disabled={updatingNode() !== null}
+                          disabled={isUpdating()}
                           class="px-2 py-1 text-[10px] bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors disabled:opacity-50"
                         >
-                          {isUpdating() ? "..." : "Update"}
+                          {isUpdating() ? "Updating..." : "Update"}
                         </button>
                         <button
                           onClick={() => handleNodeUpdate(node.id, node.is_local)}
-                          disabled={updatingNode() !== null}
+                          disabled={isUpdating()}
                           class="px-2 py-1 text-[10px] bg-slate-700 text-slate-400 rounded hover:bg-slate-600 transition-colors disabled:opacity-50"
                         >
                           {isUpdating() ? "..." : "Rebuild"}
@@ -273,9 +253,33 @@ export default function ClusterPage() {
                       </div>
                     </div>
 
-                    <Show when={node.last_error}>
+                    <Show when={node.last_error && !isUpdating()}>
                       <div class="mt-2 p-2 bg-red-500/10 rounded text-[10px] text-red-400 truncate" title={node.last_error}>
                         {node.last_error}
+                      </div>
+                    </Show>
+
+                    {/* Per-node update output */}
+                    <Show when={nodeOutput().length > 0}>
+                      <div class="mt-2 bg-slate-950 rounded-lg p-2.5 font-mono text-[10px] leading-4 max-h-40 overflow-y-auto border border-slate-700/50"
+                        ref={(el) => {
+                          const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
+                          observer.observe(el, { childList: true, subtree: true });
+                        }}>
+                        <For each={nodeOutput()}>
+                          {(line) => (
+                            <div class={
+                              line.includes("[OK]") ? "text-emerald-400" :
+                              line.includes("[WARN]") ? "text-amber-400" :
+                              line.includes("[ERROR]") ? "text-red-400" :
+                              line.includes("[INFO]") ? "text-blue-400" :
+                              "text-slate-500"
+                            }>{line}</div>
+                          )}
+                        </For>
+                        <Show when={isUpdating()}>
+                          <div class="text-amber-400 animate-pulse mt-1">Updating...</div>
+                        </Show>
                       </div>
                     </Show>
                   </div>
