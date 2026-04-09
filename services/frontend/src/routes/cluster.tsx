@@ -110,8 +110,10 @@ export default function ClusterPage() {
     refetch();
   };
 
-  // Auto-refresh every 15s
-  setInterval(() => refetch(), 15000);
+  // Auto-refresh every 15s, but pause during updates
+  setInterval(() => {
+    if (updatingNodes().size === 0) refetch();
+  }, 15000);
 
   return (
     <Layout>
