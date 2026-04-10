@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/afnalink-arif/knot-dns-manager/main/.github/logo-kdm.png" width="200" alt="KResD Manager" />
+  <img src="https://raw.githubusercontent.com/afnalink-arif/kresd-manager/main/.github/logo-kdm.png" width="200" alt="KResD Manager" />
 </p>
 
 <h1 align="center">KResD Manager</h1>
@@ -16,11 +16,11 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/afnalink-arif/knot-dns-manager/main/.github/Knot-DNS-Manager-Overview.png" width="800" alt="Dashboard Overview" />
+  <img src="https://raw.githubusercontent.com/afnalink-arif/kresd-manager/main/.github/Knot-DNS-Manager-Overview.png" width="800" alt="Dashboard Overview" />
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/afnalink-arif/knot-dns-manager/main/.github/Knot-DNS-Manager.png" width="800" alt="DNS Filtering" />
+  <img src="https://raw.githubusercontent.com/afnalink-arif/kresd-manager/main/.github/Knot-DNS-Manager.png" width="800" alt="DNS Filtering" />
 </p>
 
 ---
@@ -40,8 +40,8 @@
 
 ```bash
 curl -fsSL https://get.docker.com | sh
-git clone https://github.com/afnalink-arif/knot-dns-manager.git
-cd knot-dns-manager && ./install.sh
+git clone https://github.com/afnalink-arif/kresd-manager.git
+cd kresd-manager && ./install.sh
 ```
 
 The installer handles everything — server detection, config generation, TLS setup, and service deployment.

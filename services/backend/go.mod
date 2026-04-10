@@ -1,4 +1,4 @@
-module github.com/knot-dns-manager/backend
+module github.com/kresd-manager/backend
 
 go 1.23
 
