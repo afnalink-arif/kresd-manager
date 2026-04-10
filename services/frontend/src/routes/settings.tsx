@@ -35,8 +35,34 @@ export default function SettingsPage() {
   const [updateRunning, setUpdateRunning] = createSignal(false);
   const [updateOutput, setUpdateOutput] = createSignal<string[]>([]);
   const [updateDone, setUpdateDone] = createSignal(false);
+  const [updateFailed, setUpdateFailed] = createSignal(false);
   const [updateError, setUpdateError] = createSignal("");
   const [restarting, setRestarting] = createSignal(false);
+  const [updateProgress, setUpdateProgress] = createSignal<{ step: string; pct: number }>({ step: "", pct: 0 });
+  const [showUpdateLog, setShowUpdateLog] = createSignal(false);
+
+  const progressSteps: [RegExp, string, number][] = [
+    [/Pulling latest code/,              "Pulling latest code...",         10],
+    [/Regenerating configs/,             "Regenerating configs...",        20],
+    [/Rebuilding custom images/,         "Building images...",            30],
+    [/Cleaning up old images/,           "Cleaning up...",                45],
+    [/Restarting infrastructure/,        "Restarting infrastructure...",  50],
+    [/Restarting dnstap/,                "Restarting dnstap-ingester...", 58],
+    [/Restarting kresd/,                 "Restarting kresd...",           65],
+    [/Restarting monitoring/,            "Restarting monitoring...",      72],
+    [/Restarting frontend/,              "Restarting frontend...",        78],
+    [/Restarting caddy/,                 "Restarting caddy...",           82],
+    [/Running health checks/,            "Running health checks...",      88],
+    [/Restarting backend/,               "Restarting backend...",         95],
+    [/Update complete/,                  "Update complete",              100],
+  ];
+
+  const matchProgress = (line: string): { step: string; pct: number } | null => {
+    for (const [regex, step, pct] of progressSteps) {
+      if (regex.test(line)) return { step, pct };
+    }
+    return null;
+  };
 
   // Auto-update
   const [autoUpdateCfg, setAutoUpdateCfg] = createSignal<AutoUpdateConfig | null>(null);
@@ -208,10 +234,13 @@ export default function SettingsPage() {
 
   const handleRemoteNodeUpdate = async (id: number) => {
     setActiveTab("update");
-    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateError("");
+    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateFailed(false);
+    setUpdateError(""); setShowUpdateLog(false);
+    setUpdateProgress({ step: "Starting update...", pct: 2 });
+    let hasError = false;
     try {
       const res = await fetch(`/api/cluster/nodes/${id}/update`, { method: "POST", headers: authHeaders() });
-      if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); return; }
+      if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); setUpdateFailed(true); return; }
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -222,11 +251,23 @@ export default function SettingsPage() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
-          if (line.startsWith("data: ")) setUpdateOutput((prev) => [...prev, line.slice(6)]);
-          else if (line.startsWith("event: done")) { setUpdateDone(true); setUpdateRunning(false); }
+          if (line.startsWith("data: ")) {
+            const text = line.slice(6);
+            setUpdateOutput((prev) => [...prev, text]);
+            if (text.includes("[ERROR]")) hasError = true;
+            const prog = matchProgress(text);
+            if (prog) setUpdateProgress(prog);
+          }
+          else if (line.startsWith("event: error")) { hasError = true; }
+          else if (line.startsWith("event: done")) {
+            if (!hasError) { setUpdateDone(true); setUpdateProgress({ step: "Update complete", pct: 100 }); }
+            else { setUpdateFailed(true); }
+            setUpdateRunning(false);
+          }
         }
       }
-      if (!updateDone()) { setUpdateDone(true); setUpdateRunning(false); }
+      if (!updateDone() && !hasError) { setUpdateDone(true); setUpdateRunning(false); setUpdateProgress({ step: "Update complete", pct: 100 }); }
+      else if (hasError) { setUpdateFailed(true); setUpdateRunning(false); }
     } catch { setUpdateDone(true); setUpdateRunning(false); }
   };
 
@@ -283,10 +324,13 @@ export default function SettingsPage() {
   };
 
   const executeUpdate = async () => {
-    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateError("");
+    setUpdateRunning(true); setUpdateOutput([]); setUpdateDone(false); setUpdateFailed(false);
+    setUpdateError(""); setShowUpdateLog(false);
+    setUpdateProgress({ step: "Starting update...", pct: 2 });
+    let hasError = false;
     try {
       const res = await fetch("/api/admin/update/execute", { method: "POST", headers: authHeaders() });
-      if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); return; }
+      if (!res.ok) { const data = await res.json(); setUpdateError(data.error || "Failed"); setUpdateRunning(false); setUpdateFailed(true); return; }
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -297,12 +341,26 @@ export default function SettingsPage() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
-          if (line.startsWith("data: ")) setUpdateOutput((prev) => [...prev, line.slice(6)]);
-          else if (line.startsWith("event: done")) { setUpdateDone(true); setUpdateRunning(false); }
+          if (line.startsWith("data: ")) {
+            const text = line.slice(6);
+            setUpdateOutput((prev) => [...prev, text]);
+            if (text.includes("[ERROR]")) hasError = true;
+            const prog = matchProgress(text);
+            if (prog) setUpdateProgress(prog);
+          }
+          else if (line.startsWith("event: error")) { hasError = true; }
+          else if (line.startsWith("event: done")) {
+            if (!hasError) { setUpdateDone(true); setUpdateProgress({ step: "Update complete", pct: 100 }); }
+            else { setUpdateFailed(true); }
+            setUpdateRunning(false);
+          }
         }
       }
+      if (!updateDone() && !hasError) pollHealth();
+      else if (hasError) { setUpdateFailed(true); setUpdateRunning(false); }
+    } catch {
       if (!updateDone()) pollHealth();
-    } catch { if (!updateDone()) pollHealth(); }
+    }
   };
 
   const inputClass = "w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition";
@@ -616,29 +674,65 @@ export default function SettingsPage() {
                   <Alert msg={t("settings.up_to_date")} error={false} />
                 </Show>
 
-                <Show when={updateDone()}>
-                  <Alert msg={t("settings.update_complete")} error={false} />
+                {/* Progress bar during update */}
+                <Show when={updateRunning() || restarting()}>
+                  <div class="p-3 bg-slate-900 rounded-lg border border-slate-700/50 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs text-blue-400 font-medium">
+                        {restarting() ? "Restarting services..." : updateProgress().step}
+                      </span>
+                      <span class="text-[10px] text-slate-500">{restarting() ? "95%" : `${updateProgress().pct}%`}</span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-700 overflow-hidden">
+                      <div
+                        class={`h-full rounded-full transition-all duration-500 ease-out ${restarting() ? "bg-amber-500 animate-pulse" : "bg-blue-500"}`}
+                        style={{ width: `${restarting() ? 95 : updateProgress().pct}%` }}
+                      />
+                    </div>
+                  </div>
                 </Show>
 
-                <Show when={updateOutput().length > 0}>
-                  <div class="bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50"
-                    ref={(el) => {
-                      const observer = new MutationObserver(() => { el.scrollTop = el.scrollHeight; });
-                      observer.observe(el, { childList: true, subtree: true });
-                    }}>
-                    <For each={updateOutput()}>
-                      {(line) => (
-                        <div class={
-                          line.includes("[OK]") ? "text-emerald-400" :
-                          line.includes("[WARN]") ? "text-amber-400" :
-                          line.includes("[ERROR]") ? "text-red-400" :
-                          line.includes("[INFO]") ? "text-blue-400" :
-                          "text-slate-400"
-                        }>{line}</div>
-                      )}
-                    </For>
-                    <Show when={restarting()}>
-                      <div class="text-amber-400 animate-pulse mt-1">Restarting services...</div>
+                {/* Success */}
+                <Show when={updateDone() && !updateRunning()}>
+                  <div class="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span class="text-xs text-emerald-400 font-medium">{t("settings.update_complete")}</span>
+                  </div>
+                </Show>
+
+                {/* Failed */}
+                <Show when={updateFailed() && !updateRunning()}>
+                  <div class="space-y-2">
+                    <button
+                      class="w-full p-3 bg-red-500/10 rounded-lg border border-red-500/20 flex items-center justify-between cursor-pointer hover:bg-red-500/15 transition-colors"
+                      onClick={() => setShowUpdateLog(!showUpdateLog())}
+                    >
+                      <div class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span class="text-xs text-red-400 font-medium">Update failed</span>
+                      </div>
+                      <svg class={`w-3.5 h-3.5 text-red-400/60 transition-transform ${showUpdateLog() ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    <Show when={showUpdateLog()}>
+                      <div class="bg-slate-950 rounded-lg p-3 font-mono text-[11px] leading-5 max-h-64 overflow-y-auto border border-slate-700/50">
+                        <For each={updateOutput()}>
+                          {(line) => (
+                            <div class={
+                              line.includes("[OK]") ? "text-emerald-400" :
+                              line.includes("[WARN]") ? "text-amber-400" :
+                              line.includes("[ERROR]") ? "text-red-400" :
+                              line.includes("[INFO]") ? "text-blue-400" :
+                              "text-slate-400"
+                            }>{line}</div>
+                          )}
+                        </For>
+                      </div>
                     </Show>
                   </div>
                 </Show>
