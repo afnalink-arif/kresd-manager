@@ -333,22 +333,11 @@ function DockerCleanupCard() {
       </div>
 
       <Show when={!loading() && info()} fallback={<p class="text-xs text-slate-500">Loading...</p>}>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <For each={info().categories || []}>
-            {(cat: any) => (
-              <div class="p-3 bg-slate-700/50 rounded-lg">
-                <p class="text-[10px] text-slate-500">{cat.type}</p>
-                <p class="text-lg font-bold text-white mt-0.5">{cat.count}</p>
-                <p class="text-[10px] text-slate-500">{cat.size} (reclaimable: {cat.reclaimable})</p>
-              </div>
-            )}
-          </For>
-          <div class="p-3 bg-slate-700/50 rounded-lg">
-            <p class="text-[10px] text-slate-500">Total Reclaimable</p>
-            <p class={`text-lg font-bold mt-0.5 ${info().total_reclaimable !== "0 B" ? "text-amber-400" : "text-emerald-400"}`}>
-              {info().total_reclaimable}
-            </p>
-          </div>
+        <div class="flex items-center gap-3">
+          <span class="text-[10px] text-slate-500">Reclaimable:</span>
+          <span class={`text-sm font-bold ${info().total_reclaimable !== "0 B" ? "text-amber-400" : "text-emerald-400"}`}>
+            {info().total_reclaimable}
+          </span>
         </div>
       </Show>
 
