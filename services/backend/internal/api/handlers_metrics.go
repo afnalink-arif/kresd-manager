@@ -112,21 +112,25 @@ func (s *Server) handleMetricsCache(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, results)
 }
 
+// handleMetricsDNSSEC reports what kresd actually measures about validation.
+// knot-resolver's stats carry DNS header flags per answer, not a verdict
+// breakdown: AD = we validated it, CD = the client asked us to skip validation,
+// DO = the client signalled DNSSEC support. A bogus answer has no counter of its
+// own — it surfaces as SERVFAIL, which has many non-DNSSEC causes, so it is
+// deliberately not reported here as though it were a validation verdict.
 func (s *Server) handleMetricsDNSSEC(w http.ResponseWriter, r *http.Request) {
-	params := timeRangeParams(r)
-	params.Set("step", queryOrDefault(r, "step", "15s"))
-
 	results := map[string]json.RawMessage{}
 
 	queries := map[string]string{
-		"secure":        `rate(kresd_answer_total{dnssec="secure"}[5m])`,
-		"insecure":      `rate(kresd_answer_total{dnssec="insecure"}[5m])`,
-		"bogus":         `rate(kresd_answer_total{dnssec="bogus"}[5m])`,
-		"indeterminate": `rate(kresd_answer_total{dnssec="indeterminate"}[5m])`,
+		"validated_ad":  `sum(rate(kresd_answer_ad_total[5m]))`,
+		"not_validated": `clamp_min(sum(rate(kresd_query_total[5m])) - sum(rate(kresd_answer_ad_total[5m])), 0)`,
+		"do_bit":        `sum(rate(kresd_answer_do_total[5m]))`,
+		"cd_bypassed":   `sum(rate(kresd_answer_cd_total[5m]))`,
+		"total":         `sum(rate(kresd_query_total[5m]))`,
 	}
 
 	for name, query := range queries {
-		data, err := s.promQuery(query, params)
+		data, err := s.promInstantQuery(query)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -192,7 +196,11 @@ func (s *Server) handleMetricsOverview(w http.ResponseWriter, r *http.Request) {
 		"qps":             `sum(rate(kresd_query_total[1m]))`,
 		"avg_latency_ms":  `histogram_quantile(0.5, rate(kresd_answer_duration_seconds_bucket[5m])) * 1000`,
 		"cache_hit_ratio": `rate(kresd_cache_hit_total[5m]) / (rate(kresd_cache_hit_total[5m]) + rate(kresd_cache_miss_total[5m]))`,
-		"dnssec_secure_pct": `rate(kresd_answer_total{dnssec="secure"}[5m]) / rate(kresd_answer_total[5m]) * 100`,
+		// kresd exports no secure/bogus breakdown; it exports the answer's AD flag,
+		// which means exactly "this answer was DNSSEC-validated". The previous query
+		// filtered on a dnssec= label that never existed, so this tile read
+		// "Calculating..." forever on every node.
+		"dnssec_secure_pct": `sum(rate(kresd_answer_ad_total[5m])) / sum(rate(kresd_query_total[5m])) * 100`,
 	}
 
 	for name, query := range queries {
