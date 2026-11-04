@@ -120,6 +120,9 @@ func NewRouter(cfg *config.Config) (http.Handler, func(), error) {
 	// Public routes (no auth)
 	r.Get("/api/health", srv.handleHealth)
 	r.Get("/api/version", srv.handleVersion)
+
+	// Read-only status for external monitors (nu.afna.link); X-Monitor-Token = .env MONITOR_TOKEN
+	r.Get("/api/monitor/status", srv.handleMonitorStatus)
 	r.Post("/api/auth/login", srv.handleLogin)
 	r.Post("/api/auth/register", srv.handleRegister)
 	r.Get("/api/auth/check", srv.handleAuthCheck)
