@@ -22,6 +22,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -63,10 +64,11 @@ type monitorStatus struct {
 	} `json:"kresd"`
 	Ruledb struct {
 		AllocatedBytes int64 `json:"allocated_bytes"`
-		// MapsizeBytes = mapsize kresd is RUNNING with: LMDB sizes the sparse file to
-		// the map, so st_size is the live value. The template value only applies at
-		// the next kresd restart (216 ran 12 GiB for hours after the 16 GiB commit),
-		// and dividing by it would understate how close the node is to MAP_FULL.
+		// MapsizeBytes = mapsize the ruledb was last written with, read from the
+		// LMDB meta page (mm_mapsize of the newer meta). Neither file size nor the
+		// template is it: st_size is the high-water mark (216: 12 GiB sparse; 212
+		// after a clean reload: 3 GiB for a 16 GiB map), and the template only
+		// applies at the next kresd restart.
 		MapsizeBytes           int64    `json:"mapsize_bytes"`
 		MapsizeConfiguredBytes int64    `json:"mapsize_configured_bytes"`
 		UsedPct                *float64 `json:"used_pct"`
@@ -200,8 +202,8 @@ func (s *Server) buildMonitorStatus(ctx context.Context) monitorStatus {
 	var fi syscall.Stat_t
 	if err := syscall.Stat("/ruledb/data.mdb", &fi); err == nil {
 		st.Ruledb.AllocatedBytes = fi.Blocks * 512
-		st.Ruledb.MapsizeBytes = fi.Size
 	}
+	st.Ruledb.MapsizeBytes = lmdbMapsize("/ruledb/data.mdb")
 	if _, err := os.Stat("/ruledb/.zone-ok"); err == nil {
 		st.Ruledb.WarmMarker = true
 	}
@@ -364,4 +366,32 @@ func countKresdLog(ctx context.Context, needle, since string) int {
 	}
 	cmd.Wait()
 	return n
+}
+
+// lmdbMapsize reads mm_mapsize from the newer of LMDB's two meta pages.
+// Layout (LMDB 0.9, 64-bit): page header 16 B, then MDB_meta: magic u32,
+// version u32, address 8, mapsize 8 @32, dbs[2] 96, last_pg 8, txnid 8 @144.
+// Returns 0 when the file is missing or not LMDB.
+func lmdbMapsize(path string) int64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	var best, bestTxn uint64
+	buf := make([]byte, 152)
+	for _, off := range []int64{0, 4096} {
+		if _, err := f.ReadAt(buf, off); err != nil {
+			continue
+		}
+		if binary.LittleEndian.Uint32(buf[16:]) != 0xBEEFC0DE {
+			continue
+		}
+		mapsize := binary.LittleEndian.Uint64(buf[32:])
+		txn := binary.LittleEndian.Uint64(buf[144:])
+		if best == 0 || txn > bestTxn {
+			best, bestTxn = mapsize, txn
+		}
+	}
+	return int64(best)
 }
